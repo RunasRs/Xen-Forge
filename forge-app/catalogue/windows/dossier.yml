@@ -1,0 +1,25 @@
+name: Dossier
+os: windows
+description: Crée un dossier (dossiers parents compris) ou le supprime avec son contenu
+parameters:
+  chemin:
+    label: Dossier
+    type: str
+    format: path_windows
+    required: true
+  etat:
+    label: Action
+    help: absent supprime le dossier et tout son contenu
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Dossier système refusé
+    ansible.builtin.assert:
+      that: (chemin | lower | regex_replace('\\\\+$', '')) not in ['c:', 'c:\\windows', 'c:\\program files', 'c:\\program files (x86)', 'c:\\users', 'c:\\programdata']
+      fail_msg: "Dossier système refusé"
+      quiet: true
+  - name: Dossier
+    ansible.windows.win_file:
+      path: "{{ chemin }}"
+      state: "{{ 'directory' if etat == 'present' else 'absent' }}"

@@ -1,0 +1,41 @@
+name: Synchronisation de l'heure
+os: windows
+description: Synchronise l'horloge sur les serveurs de temps indiqués (service W32Time). À ne pas utiliser sur un membre d'un domaine, qui suit déjà la hiérarchie du domaine
+parameters:
+  serveurs:
+    label: Serveurs de temps
+    help: Noms ou adresses IP, ex. ntp.exemple.lan, 0.fr.pool.ntp.org
+    type: list
+    required: true
+tasks:
+  - name: Serveurs valides
+    ansible.builtin.assert:
+      that: serveurs | reject('match', '^[A-Za-z0-9.:-]+$') | list | length == 0
+      fail_msg: "Serveurs de temps : noms DNS ou adresses IP"
+      quiet: true
+  - name: Serveurs de temps
+    ansible.windows.win_powershell:
+      parameters:
+        Liste: "{{ serveurs | map('regex_replace', '$', ',0x8') | join(' ') }}"
+      script: |
+        [CmdletBinding(SupportsShouldProcess)]
+        param([string]$Liste)
+        $ErrorActionPreference = 'Stop'
+        $params = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Parameters'
+        if ($params.NtpServer -eq $Liste -and $params.Type -eq 'NTP') { $Ansible.Changed = $false; return }
+        if ($Ansible.CheckMode) { $Ansible.Changed = $true; return }
+        Set-Service W32Time -StartupType Automatic
+        Start-Service W32Time
+        w32tm /config /manualpeerlist:"$Liste" /syncfromflags:manual /reliable:no /update | Out-Null
+        Restart-Service W32Time
+        w32tm /resync /nowait | Out-Null
+        $Ansible.Changed = $true
+  - name: État de la synchronisation
+    ansible.windows.win_command: w32tm /query /status
+    register: forge_w32tm
+    changed_when: false
+    failed_when: false
+    check_mode: false
+  - name: Bilan
+    ansible.builtin.debug:
+      msg: "{{ forge_w32tm.stdout_lines | default([]) }}"

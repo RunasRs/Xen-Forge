@@ -1,0 +1,41 @@
+name: Téléchargement
+os: windows
+description: Télécharge un fichier depuis une adresse http(s) sur le serveur, avec contrôle de l'empreinte si elle est fournie
+parameters:
+  url:
+    label: Adresse
+    type: str
+    format: url
+    required: true
+  destination:
+    label: Fichier de destination
+    help: Le dossier doit exister (brique Dossier)
+    type: str
+    format: path_windows
+    required: true
+  empreinte:
+    label: Empreinte SHA-256
+    help: 64 caractères hexadécimaux ; le téléchargement échoue si elle ne correspond pas. Vide = sans contrôle
+    type: str
+  remplacer:
+    label: Retélécharger à chaque exécution
+    type: bool
+    default: false
+  verifier_certificat:
+    label: Vérifier le certificat HTTPS
+    type: bool
+    default: true
+tasks:
+  - name: Empreinte valide
+    ansible.builtin.assert:
+      that: empreinte is not defined or empreinte is match('^[0-9a-fA-F]{64}$')
+      fail_msg: "Empreinte : SHA-256 en hexadécimal (64 caractères)"
+      quiet: true
+  - name: Téléchargement
+    ansible.windows.win_get_url:
+      url: "{{ url }}"
+      dest: "{{ destination }}"
+      checksum: "{{ empreinte | default(omit) }}"
+      checksum_algorithm: sha256
+      force: "{{ remplacer }}"
+      validate_certs: "{{ verifier_certificat }}"

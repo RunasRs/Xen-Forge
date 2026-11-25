@@ -1,0 +1,40 @@
+name: Ligne dans un fichier
+os: linux
+description: Ajoute, remplace ou retire une ligne d'un fichier de configuration, sans toucher au reste du fichier
+parameters:
+  chemin:
+    label: Fichier
+    type: str
+    format: path_linux
+    required: true
+  ligne:
+    label: Ligne
+    help: Ligne complète à obtenir dans le fichier ; ignorée avec l'action absent
+    type: str
+  expression:
+    label: Ligne à remplacer
+    help: Expression régulière qui repère la ligne existante, ex. ^PermitRootLogin ; la dernière ligne trouvée est remplacée (ou retirée avec absent). Vide = recherche de la ligne exacte
+    type: str
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+  creer:
+    label: Créer le fichier s'il manque
+    type: bool
+    default: false
+tasks:
+  - name: Ligne ou expression indiquée
+    ansible.builtin.assert:
+      that: (etat == 'present' and ligne is defined) or (etat == 'absent' and (ligne is defined or expression is defined))
+      fail_msg: "Indiquer la ligne (et, pour retirer, la ligne ou l'expression)"
+      quiet: true
+  - name: Ligne du fichier
+    ansible.builtin.lineinfile:
+      path: "{{ chemin }}"
+      line: "{{ ligne if etat == 'present' else omit }}"
+      regexp: "{{ expression | default(omit) }}"
+      search_string: "{{ ligne if etat == 'absent' and expression is not defined else omit }}"
+      state: "{{ etat }}"
+      create: "{{ creer }}"

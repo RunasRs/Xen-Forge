@@ -1,0 +1,58 @@
+name: Redémarrage contrôlé
+os: linux
+description: Redémarre chaque serveur, toujours ou seulement si le système l'exige, puis attend qu'il réponde à nouveau
+parameters:
+  condition:
+    label: Redémarrer
+    help: « si nécessaire » ne redémarre que si une mise à jour l'exige (noyau, bibliothèques système) ou si une étape précédente l'a demandé (ex. changement du mode SELinux)
+    type: str
+    choices: [toujours, si nécessaire]
+    default: si nécessaire
+  delai_max:
+    label: Délai maximal de retour (minutes)
+    help: Le job échoue si le serveur ne répond pas de nouveau dans ce délai
+    type: int
+    min: 1
+    max: 120
+    default: 15
+tasks:
+  - name: Redémarrage requis (apt)
+    ansible.builtin.stat:
+      path: /var/run/reboot-required
+    register: forge_reboot_flag
+    when: condition == 'si nécessaire' and ansible_facts.pkg_mgr == 'apt'
+  - name: Redémarrage requis (dnf)
+    ansible.builtin.command: dnf needs-restarting -r
+    register: forge_needs_restarting
+    changed_when: false
+    failed_when: false
+    check_mode: false
+    when: condition == 'si nécessaire' and ansible_facts.pkg_mgr in ['dnf', 'dnf5']
+  - name: Redémarrage requis (zypper)
+    ansible.builtin.command: zypper needs-rebooting
+    register: forge_needs_rebooting
+    changed_when: false
+    failed_when: false
+    check_mode: false
+    when: condition == 'si nécessaire' and ansible_facts.pkg_mgr == 'zypper'
+  - name: Décision
+    ansible.builtin.set_fact:
+      forge_redemarrer: >-
+        {{ condition == 'toujours'
+        or (forge_reboot_flag.stat.exists | default(false))
+        or (forge_needs_restarting.rc | default(0)) == 1
+        or (forge_needs_rebooting.rc | default(0)) == 102
+        or (forge_reboot_pending | default(false)) | bool }}
+  - name: Redémarrage
+    ansible.builtin.reboot:
+      reboot_timeout: "{{ delai_max * 60 }}"
+      msg: Redémarrage demandé par Forge
+    register: forge_reboot
+    when: forge_redemarrer | bool
+  - name: Demande de redémarrage traitée
+    ansible.builtin.set_fact:
+      forge_reboot_pending: false
+    when: forge_reboot is not skipped
+  - name: Bilan
+    ansible.builtin.debug:
+      msg: "{{ ('Redémarré, de retour en ' ~ forge_reboot.elapsed | default(0) ~ ' s') if forge_reboot is not skipped else 'Aucun redémarrage nécessaire' }}"

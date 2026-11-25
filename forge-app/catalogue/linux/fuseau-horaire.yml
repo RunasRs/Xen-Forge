@@ -1,0 +1,22 @@
+name: Fuseau horaire
+os: linux
+description: Règle le fuseau horaire du serveur
+parameters:
+  fuseau:
+    label: Fuseau horaire
+    help: Nom de la base tz, ex. Europe/Paris, UTC, America/Montreal
+    type: str
+    default: Europe/Paris
+tasks:
+  - name: Fuseau horaire valide
+    ansible.builtin.stat:
+      path: "/usr/share/zoneinfo/{{ fuseau }}"
+    register: forge_zoneinfo
+  - name: Fuseau horaire connu du serveur
+    ansible.builtin.assert:
+      that: forge_zoneinfo.stat.exists and fuseau is match('^[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+)*$')
+      fail_msg: "Fuseau horaire « {{ fuseau }} » inconnu du serveur"
+      quiet: true
+  - name: Fuseau horaire
+    community.general.timezone:
+      name: "{{ fuseau }}"

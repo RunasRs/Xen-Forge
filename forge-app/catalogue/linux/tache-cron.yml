@@ -1,0 +1,87 @@
+name: Tâche planifiée (cron)
+os: linux
+description: Ajoute, modifie ou retire une tâche cron d'un compte ; installe et démarre cron s'il manque
+parameters:
+  nom:
+    label: Nom de la tâche
+    help: Identifie la tâche dans la crontab ; la modifier crée une autre tâche
+    type: str
+    required: true
+  commande:
+    label: Commande
+    type: str
+  minute:
+    label: Minute
+    help: 0-59, */5, 0,30 ou *
+    type: str
+    default: '0'
+  heure:
+    label: Heure
+    help: 0-23, */2 ou *
+    type: str
+    default: '*'
+  jour:
+    label: Jour du mois
+    type: str
+    default: '*'
+  mois:
+    label: Mois
+    type: str
+    default: '*'
+  jour_semaine:
+    label: Jour de la semaine
+    help: 0-6 (0 = dimanche), 1-5 ou *
+    type: str
+    default: '*'
+  utilisateur:
+    label: Compte
+    type: str
+    default: root
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - etat == 'absent' or commande is defined
+        - "[minute, heure, jour, mois, jour_semaine] | reject('match', '^[0-9*/,-]+$') | list | length == 0"
+      fail_msg: "Commande obligatoire ; champs horaires : chiffres, « * / , - »"
+      quiet: true
+  - name: Listes apt présentes
+    ansible.builtin.find:
+      paths: /var/lib/apt/lists
+      patterns: '*_Packages*'
+    register: forge_listes_apt
+    when: ansible_facts.pkg_mgr == 'apt'
+  - name: Liste des paquets rafraîchie (apt)
+    ansible.builtin.apt:
+      update_cache: true
+      cache_valid_time: "{{ 3600 if forge_listes_apt.matched else 0 }}"
+    when: ansible_facts.pkg_mgr == 'apt'
+    check_mode: false
+    changed_when: false
+  - name: Paquet cron
+    ansible.builtin.package:
+      name: "{{ 'cron' if ansible_facts.os_family == 'Debian' else 'cronie' }}"
+      state: present
+    when: etat == 'present'
+  - name: Service cron démarré au démarrage
+    ansible.builtin.systemd_service:
+      name: "{{ 'cron' if ansible_facts.os_family == 'Debian' else 'crond' }}"
+      state: started
+      enabled: true
+    when: etat == 'present'
+  - name: Tâche cron
+    ansible.builtin.cron:
+      name: "{{ nom }}"
+      job: "{{ commande | default(omit) }}"
+      minute: "{{ minute }}"
+      hour: "{{ heure }}"
+      day: "{{ jour }}"
+      month: "{{ mois }}"
+      weekday: "{{ jour_semaine }}"
+      user: "{{ utilisateur }}"
+      state: "{{ etat }}"

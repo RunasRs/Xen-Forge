@@ -1,0 +1,63 @@
+name: "Pare-feu : règle"
+os: windows
+description: Crée, modifie ou supprime une règle du pare-feu Windows (ports, protocole, sens, profils, adresses distantes)
+parameters:
+  nom:
+    label: Nom de la règle
+    type: str
+    required: true
+  ports:
+    label: Ports locaux
+    help: Port, plage ou liste, ex. 443, 8000-8100, 80,443 ; vide = tous
+    type: str
+  protocole:
+    label: Protocole
+    type: str
+    choices: [tcp, udp, icmpv4, any]
+    default: tcp
+  direction:
+    label: Sens
+    type: str
+    choices: [entrant, sortant]
+    default: entrant
+  autoriser:
+    label: Autoriser
+    help: Non = bloquer
+    type: bool
+    default: true
+  profils:
+    label: Profils
+    type: list
+    choices: [domain, private, public]
+    default: [domain, private, public]
+  adresses_distantes:
+    label: Adresses distantes
+    help: any, ou adresses et réseaux séparés par des virgules, ex. 192.168.1.0/24,10.0.0.5
+    type: str
+    default: any
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - ports is not defined or ports is match('^[0-9]{1,5}(-[0-9]{1,5})?(,[0-9]{1,5}(-[0-9]{1,5})?)*$')
+        - ports is not defined or protocole in ['tcp', 'udp']
+        - adresses_distantes is match('^(any|[0-9./,-]+)$')
+        - profils | length > 0
+      fail_msg: "Ports : numéros, plages et virgules, avec tcp ou udp ; adresses : any ou adresses IPv4 et réseaux"
+      quiet: true
+  - name: Règle du pare-feu
+    community.windows.win_firewall_rule:
+      name: "{{ nom }}"
+      localport: "{{ ports | default(omit) }}"
+      protocol: "{{ protocole }}"
+      direction: "{{ 'in' if direction == 'entrant' else 'out' }}"
+      action: "{{ 'allow' if autoriser else 'block' }}"
+      profiles: "{{ profils }}"
+      remoteip: "{{ adresses_distantes }}"
+      enabled: true
+      state: "{{ etat }}"

@@ -1,0 +1,29 @@
+name: Commandes
+os: linux
+description: Exécute des commandes shell sur chaque serveur, dans l'ordre, avec les droits root
+parameters:
+  commandes:
+    label: Commandes
+    help: Une commande par ligne
+    type: str
+    required: true
+    multiline: true
+  arret_sur_erreur:
+    label: S'arrêter à la première erreur
+    type: bool
+    default: true
+  interpreteur:
+    label: Interpréteur
+    type: str
+    choices: [/bin/bash, /bin/sh]
+    default: /bin/bash
+tasks:
+  - name: Exécution des commandes
+    ansible.builtin.shell:
+      cmd: "set {{ '-e' if arret_sur_erreur else '+e' }}\n{{ commandes }}"
+      executable: "{{ interpreteur }}"
+    register: forge_commandes
+  - name: Sortie des commandes
+    ansible.builtin.debug:
+      var: forge_commandes.stdout_lines
+    when: forge_commandes is not skipped

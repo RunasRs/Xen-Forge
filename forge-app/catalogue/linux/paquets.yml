@@ -1,0 +1,67 @@
+name: Paquets
+os: linux
+description: Installe, met à jour ou désinstalle une liste de paquets avec le gestionnaire de la cible (apt, dnf ou zypper)
+parameters:
+  paquets:
+    label: Paquets
+    help: Noms des paquets, ex. curl, htop, vim ; une version peut être précisée selon la distribution (nginx=1.24.0-1 avec apt)
+    type: list
+    required: true
+  etat:
+    label: Action
+    help: present = installer s'il manque ; latest = installer ou mettre à jour ; absent = désinstaller
+    type: str
+    choices: [present, latest, absent]
+    default: present
+  rafraichir:
+    label: Rafraîchir la liste des paquets
+    help: Avant l'action ; avec apt, seulement si la liste date de plus d'une heure
+    type: bool
+    default: true
+tasks:
+  - name: Gestionnaire de paquets pris en charge
+    ansible.builtin.assert:
+      that: ansible_facts.pkg_mgr in ['apt', 'dnf', 'dnf5', 'zypper']
+      fail_msg: "Gestionnaire de paquets {{ ansible_facts.pkg_mgr }} non pris en charge"
+      quiet: true
+  - name: Noms de paquets valides
+    ansible.builtin.assert:
+      that: paquets | reject('match', '^[A-Za-z0-9][A-Za-z0-9.+_:~=-]*$') | list | length == 0
+      fail_msg: "Noms de paquets : lettres, chiffres et « . + _ : ~ = - », sans espace"
+      quiet: true
+  - name: Listes apt présentes
+    ansible.builtin.find:
+      paths: /var/lib/apt/lists
+      patterns: '*_Packages*'
+    register: forge_listes_apt
+    when: rafraichir and ansible_facts.pkg_mgr == 'apt'
+  - name: Liste des paquets rafraîchie (apt)
+    ansible.builtin.apt:
+      update_cache: true
+      cache_valid_time: "{{ 3600 if forge_listes_apt.matched else 0 }}"
+    when: rafraichir and ansible_facts.pkg_mgr == 'apt'
+    check_mode: false
+    changed_when: false
+  - name: Paquets (apt)
+    ansible.builtin.apt:
+      name: "{{ paquets }}"
+      state: "{{ etat }}"
+    when: ansible_facts.pkg_mgr == 'apt'
+  - name: Paquets (dnf)
+    ansible.builtin.dnf:
+      name: "{{ paquets }}"
+      state: "{{ etat }}"
+      update_cache: "{{ rafraichir }}"
+    when: ansible_facts.pkg_mgr == 'dnf'
+  - name: Paquets (dnf5)
+    ansible.builtin.dnf5:
+      name: "{{ paquets }}"
+      state: "{{ etat }}"
+      update_cache: "{{ rafraichir }}"
+    when: ansible_facts.pkg_mgr == 'dnf5'
+  - name: Paquets (zypper)
+    community.general.zypper:
+      name: "{{ paquets }}"
+      state: "{{ etat }}"
+      update_cache: "{{ rafraichir }}"
+    when: ansible_facts.pkg_mgr == 'zypper'

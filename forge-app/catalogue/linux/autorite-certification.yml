@@ -1,0 +1,83 @@
+name: Autorité de certification
+os: linux
+description: Ajoute ou retire une autorité de certification du menu Certificats dans le magasin de confiance du système
+parameters:
+  autorite:
+    label: Autorité de certification
+    help: Certificat de type CA du menu Certificats
+    type: certificate_entry
+    cert_types: [ca]
+    required: true
+  nom_fichier:
+    label: Nom du fichier
+    help: Fichier forge-<nom>.crt dans le dossier des autorités du système
+    type: str
+    format: hostname
+    default: autorite
+  etat:
+    label: Action
+    help: ajouter = installer ou mettre à jour ; retirer = supprimer le fichier forge-<nom>.crt
+    type: str
+    choices: [ajouter, retirer]
+    default: ajouter
+tasks:
+  - name: Distribution prise en charge
+    ansible.builtin.assert:
+      that: ansible_facts.os_family in ['Debian', 'RedHat', 'Suse']
+      fail_msg: "Famille {{ ansible_facts.os_family }} non prise en charge (Debian, RedHat, Suse)"
+      quiet: true
+  - name: Emplacement des autorités
+    ansible.builtin.set_fact:
+      forge_ca_dossier: >-
+        {{ {'Debian': '/usr/local/share/ca-certificates', 'RedHat': '/etc/pki/ca-trust/source/anchors',
+        'Suse': '/etc/pki/trust/anchors'}[ansible_facts.os_family] }}
+      forge_ca_commande: "{{ ['update-ca-trust', 'extract'] if ansible_facts.os_family == 'RedHat' else ['update-ca-certificates'] }}"
+  - name: Listes apt présentes
+    ansible.builtin.find:
+      paths: /var/lib/apt/lists
+      patterns: '*_Packages*'
+    register: forge_listes_apt
+    when: ansible_facts.pkg_mgr == 'apt'
+  - name: Liste des paquets rafraîchie (apt)
+    ansible.builtin.apt:
+      update_cache: true
+      cache_valid_time: "{{ 3600 if forge_listes_apt.matched else 0 }}"
+    when: ansible_facts.pkg_mgr == 'apt'
+    check_mode: false
+    changed_when: false
+  - name: Paquet ca-certificates
+    ansible.builtin.package:
+      name: ca-certificates
+      state: present
+    when: etat == 'ajouter'
+  - name: Dossier des autorités
+    ansible.builtin.file:
+      path: "{{ forge_ca_dossier }}"
+      state: directory
+      owner: root
+      group: root
+      mode: "0755"
+    when: etat == 'ajouter'
+  - name: Fichier de l'autorité
+    ansible.builtin.copy:
+      content: "{{ autorite.certificate }}"
+      dest: "{{ forge_ca_dossier }}/forge-{{ nom_fichier }}.crt"
+      owner: root
+      group: root
+      mode: "0644"
+    register: forge_ca_ajout
+    when: etat == 'ajouter'
+    ignore_errors: "{{ ansible_check_mode }}"
+  - name: Fichier de l'autorité retiré
+    ansible.builtin.file:
+      path: "{{ forge_ca_dossier }}/forge-{{ nom_fichier }}.crt"
+      state: absent
+    register: forge_ca_retrait
+    when: etat == 'retirer'
+  - name: Magasin de confiance mis à jour
+    ansible.builtin.command:
+      argv: "{{ forge_ca_commande }}"
+    when: forge_ca_ajout is changed or forge_ca_retrait is changed
+  - name: Bilan
+    ansible.builtin.debug:
+      msg: "{{ autorite.name }} ({{ autorite.subject }}, jusqu'au {{ autorite.not_after[:10] }}) : {{ 'installée dans' if etat == 'ajouter' else 'retirée de' }} {{ forge_ca_dossier }}/forge-{{ nom_fichier }}.crt"

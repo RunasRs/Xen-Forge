@@ -1,0 +1,125 @@
+name: Étendre une partition
+os: linux
+description: Étend une partition à tout l'espace libre qui la suit sur son disque, puis son système de fichiers ou son volume LVM (après agrandissement du disque de la VM)
+parameters:
+  disque:
+    label: Disque
+    help: Nom du disque, ex. /dev/sda, /dev/sdb ou /dev/xvda (disque d'une VM XCP-ng)
+    type: str
+    required: true
+    format: path_linux
+  partition:
+    label: Numéro de partition
+    help: Numéro de la partition à étendre sur ce disque (1 pour /dev/sda1) ; l'espace libre doit se trouver juste après elle
+    type: int
+    required: true
+    min: 1
+    max: 128
+  volume_logique:
+    label: Volume logique LVM
+    help: Seulement si la partition est un volume physique LVM. Nom du volume à étendre (ex. root) ; vide = l'espace ajouté reste libre dans le groupe de volumes
+    type: str
+tasks:
+  - name: Disque valide
+    ansible.builtin.assert:
+      that:
+        - disque is match('^/dev/[a-z][a-z0-9]*$')
+        - ansible_facts.os_family in ['Debian', 'RedHat', 'Suse']
+      fail_msg: "Disque attendu sous la forme /dev/sda (lettres et chiffres) sur Debian, Ubuntu, RHEL ou openSUSE ; reçu « {{ disque }} » sur {{ ansible_facts.os_family }}"
+      quiet: true
+  - name: Partition à étendre
+    ansible.builtin.set_fact:
+      forge_partition: "{{ disque ~ ('p' if disque is match('.*[0-9]$') else '') ~ partition }}"
+  - name: Type de la partition
+    ansible.builtin.command:
+      argv: [lsblk, --nodeps, --noheadings, --output, "TYPE,FSTYPE", "{{ forge_partition }}"]
+    register: forge_lsblk
+    changed_when: false
+    failed_when: false
+    check_mode: false
+  - name: Partition présente et prise en charge
+    ansible.builtin.assert:
+      that:
+        - forge_lsblk.rc == 0
+        - forge_lsblk.stdout.split() | first | default('') == 'part'
+        - forge_lsblk.stdout.split()[1] | default('') in ['ext2', 'ext3', 'ext4', 'xfs', 'btrfs', 'LVM2_member']
+      fail_msg: "{{ forge_partition }} : partition introuvable sur {{ disque }}, ou système de fichiers non pris en charge (ext2/3/4, xfs, btrfs ou LVM) : {{ forge_lsblk.stdout | default('', true) | trim or forge_lsblk.stderr | trim }}"
+      quiet: true
+  - name: Listes apt présentes
+    ansible.builtin.find:
+      paths: /var/lib/apt/lists
+      patterns: '*_Packages*'
+    register: forge_listes_apt
+    when: ansible_facts.pkg_mgr == 'apt'
+  - name: Liste des paquets rafraîchie (apt)
+    ansible.builtin.apt:
+      update_cache: true
+      cache_valid_time: "{{ 3600 if forge_listes_apt.matched else 0 }}"
+    when: ansible_facts.pkg_mgr == 'apt'
+    check_mode: false
+    changed_when: false
+  - name: Outil growpart
+    ansible.builtin.package:
+      name: "{{ {'Debian': 'cloud-guest-utils', 'RedHat': 'cloud-utils-growpart', 'Suse': 'growpart'}[ansible_facts.os_family] }}"
+      state: present
+    register: forge_outil
+  - name: Extension de la partition
+    ansible.builtin.command:
+      argv: "{{ ['growpart'] + (['--dry-run'] if ansible_check_mode else []) + [disque, partition | string] }}"
+    register: forge_growpart
+    changed_when: forge_growpart.rc == 0
+    failed_when: forge_growpart.rc != 0 and 'NOCHANGE' not in forge_growpart.stdout
+    check_mode: false
+    when: not (ansible_check_mode and forge_outil is changed)
+  - name: Extension du volume physique LVM
+    community.general.filesystem:
+      dev: "{{ forge_partition }}"
+      fstype: lvm
+      resizefs: true
+    when: forge_lsblk.stdout.split()[1] == 'LVM2_member'
+  - name: Groupe de volumes
+    ansible.builtin.command:
+      argv: [pvs, --noheadings, --options, vg_name, "{{ forge_partition }}"]
+    register: forge_groupe
+    changed_when: false
+    check_mode: false
+    when: forge_lsblk.stdout.split()[1] == 'LVM2_member' and volume_logique | default('', true) | length > 0
+  - name: Extension du volume logique et de son système de fichiers
+    community.general.lvol:
+      vg: "{{ forge_groupe.stdout | trim }}"
+      lv: "{{ volume_logique }}"
+      size: +100%FREE
+      resizefs: true
+    when: forge_lsblk.stdout.split()[1] == 'LVM2_member' and volume_logique | default('', true) | length > 0
+  - name: Tailles de la partition et du système de fichiers
+    ansible.builtin.shell: |
+      set -e
+      part={{ forge_partition | quote }}
+      taille=$(blockdev --getsize64 "$part")
+      case {{ forge_lsblk.stdout.split()[1] | quote }} in
+        ext*) fs=$(tune2fs -l "$part" | awk -F: '/^Block count/ {c=$2} /^Block size/ {s=$2} END {printf "%.0f", c*s}') ;;
+        xfs) fs=$(xfs_info "$(findmnt -n -o TARGET --source "$part" | head -n 1)" | sed -n 's/^data *= *bsize=\([0-9]*\) *blocks=\([0-9]*\).*/\1 \2/p' | awk '{printf "%.0f", $1*$2}') ;;
+        btrfs) fs=$(btrfs filesystem show --raw "$part" | awk '/devid/ {print $4; exit}') ;;
+      esac
+      echo "$taille ${fs:-0}"
+    register: forge_tailles
+    changed_when: false
+    check_mode: false
+    when: forge_lsblk.stdout.split()[1] != 'LVM2_member'
+  - name: Extension du système de fichiers
+    community.general.filesystem:
+      dev: "{{ forge_partition }}"
+      fstype: "{{ forge_lsblk.stdout.split()[1] }}"
+      resizefs: true
+    when: >-
+      forge_lsblk.stdout.split()[1] != 'LVM2_member'
+      and (forge_tailles.stdout.split()[0] | int) - (forge_tailles.stdout.split()[1] | int) > 33554432
+  - name: État du disque
+    ansible.builtin.command:
+      argv: [lsblk, --output, "NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS", "{{ disque }}"]
+    register: forge_etat
+    changed_when: false
+    check_mode: false
+  - name: Bilan
+    ansible.builtin.debug:
+      var: forge_etat.stdout_lines

@@ -1,0 +1,35 @@
+name: Mise à jour Windows
+os: windows
+description: Recherche ou installe les mises à jour Windows Update, puis redémarre si nécessaire
+parameters:
+  mode:
+    label: Action
+    help: « rechercher » liste les mises à jour disponibles sans rien installer
+    type: str
+    choices: [installer, rechercher]
+    default: installer
+  categories:
+    label: Catégories
+    help: Indépendantes de l'action. Updates = mises à jour courantes (ni sécurité ni critiques) ; Upgrades = passage à une nouvelle version de Windows (mise à jour de fonctionnalités)
+    type: list
+    choices: ['*', SecurityUpdates, CriticalUpdates, UpdateRollups, DefinitionUpdates, Updates, FeaturePacks, ServicePacks, Tools, Drivers, Upgrades]
+    default: [SecurityUpdates, CriticalUpdates, UpdateRollups, DefinitionUpdates]
+  redemarrer:
+    label: Redémarrer si nécessaire
+    help: Redémarre autant de fois que l'installation l'exige, puis reprend la recherche
+    type: bool
+    default: true
+tasks:
+  - name: Mises à jour Windows
+    ansible.windows.win_updates:
+      category_names: "{{ categories }}"
+      state: "{{ 'installed' if mode == 'installer' else 'searched' }}"
+      reboot: "{{ redemarrer and mode == 'installer' }}"
+      reboot_timeout: 1800
+    register: forge_updates
+  - name: Bilan
+    ansible.builtin.debug:
+      msg:
+        - "Trouvées : {{ forge_updates.found_update_count | default(0) }}, installées : {{ forge_updates.installed_update_count | default(0) }}, en échec : {{ forge_updates.failed_update_count | default(0) }}"
+        - "Redémarrage encore nécessaire : {{ forge_updates.reboot_required | default(false) }}"
+        - "{{ forge_updates.updates | default({}) | dict2items | map(attribute='value.title') | list }}"

@@ -1,0 +1,42 @@
+name: Rôles et fonctionnalités
+os: windows
+description: Installe ou retire des rôles et fonctionnalités de Windows Server (IIS, DHCP, RSAT…) ; le redémarrage éventuel est fait par l'étape Redémarrage contrôlé
+parameters:
+  noms:
+    label: Rôles et fonctionnalités
+    help: Noms courts de Get-WindowsFeature, ex. Web-Server, RSAT-AD-Tools, Telnet-Client
+    type: list
+    required: true
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+  sous_fonctionnalites:
+    label: Avec les sous-fonctionnalités
+    type: bool
+    default: false
+  outils_gestion:
+    label: Avec les outils de gestion
+    type: bool
+    default: true
+tasks:
+  - name: Noms valides
+    ansible.builtin.assert:
+      that: noms | reject('match', '^[A-Za-z0-9-]+$') | list | length == 0
+      fail_msg: "Noms : lettres, chiffres et « - », ex. Web-Server"
+      quiet: true
+  - name: Rôles et fonctionnalités
+    ansible.windows.win_feature:
+      name: "{{ noms }}"
+      state: "{{ etat }}"
+      include_sub_features: "{{ sous_fonctionnalites }}"
+      include_management_tools: "{{ outils_gestion }}"
+    register: forge_features
+  - name: Redémarrage demandé
+    ansible.builtin.set_fact:
+      forge_reboot_pending: true
+    when: forge_features.reboot_required | default(false)
+  - name: Bilan
+    ansible.builtin.debug:
+      msg: "{{ (forge_features.feature_result | default([]) | map(attribute='display_name') | list) or ['Rien à changer'] }}{{ ' ; redémarrage nécessaire' if forge_features.reboot_required | default(false) else '' }}"

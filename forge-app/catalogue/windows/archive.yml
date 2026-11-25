@@ -1,0 +1,31 @@
+name: Extraire une archive ZIP
+os: windows
+description: Extrait une archive ZIP présente sur le serveur dans un dossier ; l'extraction n'est pas refaite si le fichier témoin existe
+parameters:
+  source:
+    label: Archive ZIP
+    type: str
+    format: path_windows
+    required: true
+  destination:
+    label: Dossier de destination
+    help: Créé s'il manque
+    type: str
+    format: path_windows
+    required: true
+  temoin:
+    label: Fichier témoin
+    help: Chemin d'un fichier de l'archive une fois extraite ; vide = extraction à chaque exécution
+    type: str
+    format: path_windows
+  supprimer_archive:
+    label: Supprimer l'archive après extraction
+    type: bool
+    default: false
+tasks:
+  - name: Extraction
+    community.windows.win_unzip:
+      src: "{{ source }}"
+      dest: "{{ destination }}"
+      creates: "{{ temoin | default(omit) }}"
+      delete_archive: "{{ supprimer_archive }}"

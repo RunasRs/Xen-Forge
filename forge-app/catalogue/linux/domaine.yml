@@ -1,0 +1,144 @@
+name: Intégration au domaine
+os: linux
+description: Intègre le serveur à un domaine Active Directory avec realmd et SSSD, à l'aide d'un compte du coffre-fort
+parameters:
+  domaine:
+    label: Domaine
+    help: Nom DNS complet du domaine Active Directory, ex. corp.exemple.lan
+    type: str
+    format: fqdn
+    required: true
+  serveurs_dns:
+    label: Serveurs DNS du domaine
+    help: Adresses IPv4 des serveurs DNS du domaine, séparées par des virgules (3 au plus) ; écrites dans /etc/resolv.conf avec « search <domaine> » avant l'intégration
+    type: list
+    format: ipv4
+    required: true
+  compte:
+    label: Compte d'intégration
+    help: Entrée « mot de passe » du coffre-fort, compte autorisé à joindre des ordinateurs au domaine ; nom sans le domaine (ex. admin)
+    type: vault_entry
+    required: true
+  unite_organisation:
+    label: Unité d'organisation
+    help: DN de l'OU du compte ordinateur, ex. OU=Serveurs,DC=corp,DC=exemple,DC=lan ; vide = conteneur Computers
+    type: str
+  dossier_personnel:
+    label: Créer le dossier personnel
+    help: Crée /home/<utilisateur> à la première connexion d'un compte du domaine
+    type: bool
+    default: true
+tasks:
+  - name: Distribution prise en charge
+    ansible.builtin.assert:
+      that: ansible_facts.os_family in ['Debian', 'RedHat']
+      fail_msg: "Famille {{ ansible_facts.os_family }} non prise en charge (Debian, RedHat)"
+      quiet: true
+  - name: Compte avec mot de passe
+    ansible.builtin.assert:
+      that: compte.password is defined and compte.password | length > 0
+      fail_msg: "Compte d'intégration sans mot de passe : choisir une entrée « mot de passe » du coffre-fort"
+      quiet: true
+    no_log: false
+  - name: Listes apt présentes
+    ansible.builtin.find:
+      paths: /var/lib/apt/lists
+      patterns: '*_Packages*'
+    register: forge_listes_apt
+    when: ansible_facts.pkg_mgr == 'apt'
+  - name: Liste des paquets rafraîchie (apt)
+    ansible.builtin.apt:
+      update_cache: true
+      cache_valid_time: "{{ 3600 if forge_listes_apt.matched else 0 }}"
+    when: ansible_facts.pkg_mgr == 'apt'
+    check_mode: false
+    changed_when: false
+  - name: Paquets realmd et SSSD
+    ansible.builtin.package:
+      name: >-
+        {{ ['realmd', 'sssd', 'sssd-tools', 'adcli', 'libnss-sss', 'libpam-sss', 'samba-common-bin']
+        if ansible_facts.os_family == 'Debian'
+        else ['realmd', 'sssd', 'adcli', 'oddjob', 'oddjob-mkhomedir', 'samba-common-tools', 'krb5-workstation'] }}
+      state: present
+  - name: Paquets SSSD vérifiés sans PackageKit (Debian)
+    ansible.builtin.copy:
+      dest: /etc/realmd.conf
+      content: |
+        [sssd-packages]
+        libnss-sss = /usr/lib/{{ ansible_facts.architecture }}-linux-gnu/libnss_sss.so.2
+        libpam-sss = /usr/lib/{{ ansible_facts.architecture }}-linux-gnu/security/pam_sss.so
+      owner: root
+      group: root
+      mode: "0644"
+    register: forge_realmd_conf
+    when: ansible_facts.os_family == 'Debian'
+  - name: realmd relancé avec sa configuration (Debian)
+    ansible.builtin.service:
+      name: realmd
+      state: stopped
+    when: forge_realmd_conf is changed
+  - name: Nombre de serveurs DNS
+    ansible.builtin.assert:
+      that: serveurs_dns | length >= 1 and serveurs_dns | length <= 3
+      fail_msg: "Serveurs DNS du domaine : 1 à 3 adresses (le système n'en lit pas plus de 3)"
+      quiet: true
+  - name: Contenu de /etc/resolv.conf
+    ansible.builtin.set_fact:
+      forge_saut_ligne: "\n"
+  - name: DNS du domaine dans /etc/resolv.conf
+    ansible.builtin.copy:
+      dest: /etc/resolv.conf
+      content: "{{ (['search ' ~ domaine] + (serveurs_dns | map('regex_replace', '^', 'nameserver ') | list) + ['']) | join(forge_saut_ligne) }}"
+      owner: root
+      group: root
+      mode: "0644"
+      follow: false
+      backup: true
+  - name: Domaines actuels
+    ansible.builtin.command:
+      argv: [realm, list, --name-only]
+    register: forge_domaine_actuel
+    changed_when: false
+    failed_when: false
+    check_mode: false
+  - name: Appartenance au domaine
+    ansible.builtin.set_fact:
+      forge_deja_membre: "{{ domaine | lower in (forge_domaine_actuel.stdout_lines | map('lower') | list) }}"
+  - name: Pas membre d'un autre domaine
+    ansible.builtin.assert:
+      that: forge_domaine_actuel.stdout_lines | map('lower') | reject('equalto', domaine | lower) | list | length == 0
+      fail_msg: "Le serveur est déjà membre de {{ forge_domaine_actuel.stdout_lines | join(', ') }} : le retirer d'abord"
+      quiet: true
+  - name: Intégration au domaine
+    ansible.builtin.command:
+      argv: "{{ ['realm', 'join', '--user=' ~ compte.username]
+        + (['--computer-ou=' ~ unite_organisation] if unite_organisation | default('', true) else []) + [domaine] }}"
+      stdin: "{{ compte.password }}"
+    register: forge_domaine_integration
+    when: not forge_deja_membre
+    failed_when: false
+    no_log: true
+  - name: Résultat de l'intégration
+    ansible.builtin.fail:
+      msg: "realm join en échec (code {{ forge_domaine_integration.rc }}) : {{ (forge_domaine_integration.stderr_lines + forge_domaine_integration.stdout_lines) | select | join(' ; ') }}"
+    when: forge_domaine_integration.rc | default(0) != 0
+  - name: Dossier personnel à la connexion (Debian)
+    ansible.builtin.command:
+      argv: [pam-auth-update, --enable, mkhomedir]
+    when: dossier_personnel and ansible_facts.os_family == 'Debian' and forge_domaine_integration is changed
+  - name: Dossier personnel à la connexion (RedHat)
+    ansible.builtin.command:
+      argv: [authselect, enable-feature, with-mkhomedir]
+    when: dossier_personnel and ansible_facts.os_family == 'RedHat' and forge_domaine_integration is changed
+  - name: Service oddjobd (RedHat)
+    ansible.builtin.service:
+      name: oddjobd
+      state: started
+      enabled: true
+    when: dossier_personnel and ansible_facts.os_family == 'RedHat'
+  - name: Bilan
+    ansible.builtin.debug:
+      msg: >-
+        {{ 'Déjà membre du domaine ' ~ domaine if forge_deja_membre
+        else 'Vérification : le serveur serait intégré au domaine ' ~ domaine if ansible_check_mode
+        else 'Intégré au domaine ' ~ domaine }}

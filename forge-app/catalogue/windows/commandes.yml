@@ -1,0 +1,36 @@
+name: Commandes
+os: windows
+description: Exécute des commandes PowerShell ou cmd sur chaque serveur, dans l'ordre, avec le compte de connexion
+parameters:
+  commandes:
+    label: Commandes
+    help: Une commande par ligne (Windows PowerShell 5.1 ou cmd)
+    type: str
+    required: true
+    multiline: true
+  arret_sur_erreur:
+    label: S'arrêter à la première erreur
+    help: "PowerShell : un programme externe en échec n'arrête le script que s'il est sur la dernière ligne. cmd : arrêt à la première commande en erreur"
+    type: bool
+    default: true
+  interpreteur:
+    label: Interpréteur
+    type: str
+    choices: [powershell, cmd]
+    default: powershell
+tasks:
+  - name: Exécution des commandes
+    ansible.windows.win_shell: |-
+      {% if interpreteur == 'cmd' -%}
+      {{ commandes.splitlines() | map('trim') | select | join('&& ' if arret_sur_erreur else '& ') }}
+      {%- else -%}
+      $ErrorActionPreference = '{{ 'Stop' if arret_sur_erreur else 'Continue' }}'
+      {{ commandes }}
+      {%- endif %}
+    args:
+      executable: "{{ 'cmd' if interpreteur == 'cmd' else omit }}"
+    register: forge_commandes
+  - name: Sortie des commandes
+    ansible.builtin.debug:
+      var: forge_commandes.stdout_lines
+    when: forge_commandes is not skipped

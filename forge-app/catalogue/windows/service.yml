@@ -1,0 +1,39 @@
+name: Service Windows
+os: windows
+description: Démarre, arrête ou redémarre un service Windows et règle son type de démarrage
+parameters:
+  nom:
+    label: Service
+    help: Nom du service (pas son nom affiché), ex. W3SVC, Spooler, wuauserv
+    type: str
+    required: true
+  operation:
+    label: Action
+    type: str
+    choices: [démarrer, arrêter, redémarrer, aucune]
+    default: démarrer
+  demarrage:
+    label: Type de démarrage
+    type: str
+    choices: [automatique, automatique différé, manuel, désactivé, inchangé]
+    default: automatique
+tasks:
+  - name: Nom valide
+    ansible.builtin.assert:
+      that: nom is match('^[A-Za-z0-9_.$-]+$')
+      fail_msg: "Service : nom court du service, ex. W3SVC"
+      quiet: true
+  - name: Service présent
+    ansible.windows.win_service_info:
+      name: "{{ nom }}"
+    register: forge_service_info
+  - name: Service existant
+    ansible.builtin.assert:
+      that: forge_service_info.exists
+      fail_msg: "Service {{ nom }} introuvable : installer le rôle ou le logiciel qui le fournit avant cette étape"
+      quiet: true
+  - name: Service
+    ansible.windows.win_service:
+      name: "{{ nom }}"
+      state: "{{ {'démarrer': 'started', 'arrêter': 'stopped', 'redémarrer': 'restarted'}[operation] | default(omit) }}"
+      start_mode: "{{ {'automatique': 'auto', 'automatique différé': 'delayed', 'manuel': 'manual', 'désactivé': 'disabled'}[demarrage] | default(omit) }}"

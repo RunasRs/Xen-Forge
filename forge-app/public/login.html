@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Xen Forge - Connexion</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <script src="/theme-init.js"></script>
+  <link rel="stylesheet" href="/theme.css">
+  <link rel="stylesheet" href="/login.css">
+</head>
+<body>
+  <main class="card">
+    <header class="card-head">
+      <span class="app-logo" aria-hidden="true">
+        <svg viewBox="3 3 26 26">
+          <g transform="translate(0 -0.5)" stroke-width=".7" stroke-linejoin="round">
+            <path class="anvil-top" d="M4 8.5H27Q27.8 8.5 27.8 9.3V11.8Q27.8 12.6 27 12.6H11.5C8.5 12.6 5.8 11 4 8.5Z"></path>
+            <path class="anvil-mid" d="M12.6 13.6H23.4Q21.4 15.8 21.6 18.3H14.4Q14.6 15.8 12.6 13.6Z"></path>
+            <path class="anvil-base" d="M14.4 19.3H21.6Q22 21.6 25.5 22.4V23.8Q25.5 24.5 24.8 24.5H11.2Q10.5 24.5 10.5 23.8V22.4Q14 21.6 14.4 19.3Z"></path>
+          </g>
+        </svg>
+      </span>
+      <span class="brand">Xen Forge</span>
+    </header>
+
+    <form id="login-form" class="card-body" novalidate>
+      <div id="credentials-step" class="step">
+        <div class="segmented" id="auth-source" role="radiogroup" aria-label="Type de compte" hidden>
+          <label><input type="radio" name="authSource" value="domain"><span>Domaine</span></label>
+          <label><input type="radio" name="authSource" value="local" checked><span>Compte local</span></label>
+        </div>
+        <div class="field">
+          <label for="username">Identifiant</label>
+          <input id="username" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+        </div>
+        <div class="field">
+          <label for="password">Mot de passe</label>
+          <div class="input-wrap">
+            <input id="password" name="password" type="password" autocomplete="current-password" required>
+            <button type="button" class="input-icon-btn reveal" data-target="password" aria-label="Afficher le mot de passe" aria-pressed="false">
+              <svg class="icon-show" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle>
+              </svg>
+              <svg class="icon-hide" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M10.6 5.1A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-2.6 3.5M6.6 6.6C3.7 8.4 2 12 2 12s3.6 7 10 7a9.7 9.7 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="totp-section" class="step" hidden>
+        <div class="field">
+          <label for="totp-code">Code de vérification</label>
+          <div class="otp">
+            <input id="totp-code" class="otp-input" name="totpCode" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6">
+            <div class="otp-slots" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="totp-setup" class="step" hidden>
+        <ol class="setup-steps">
+          <li>
+            <span class="step-num" aria-hidden="true">1</span>
+            <div class="step-body">
+              <b>Scannez le QR code</b>
+              <span>avec votre application d'authentification (Google Authenticator, Authy, Microsoft Authenticator…).</span>
+            </div>
+            <div class="qr-box" id="totp-qrcode"></div>
+            <div class="step-body step-aside">
+              <label for="totp-secret" class="secret-label">Ou saisissez la clé manuellement</label>
+              <div class="input-wrap secret-wrap">
+                <input type="password" id="totp-secret" readonly>
+                <button type="button" class="input-icon-btn reveal" data-target="totp-secret" aria-label="Afficher la clé secrète" aria-pressed="false">
+                  <svg class="icon-show" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                  <svg class="icon-hide" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M10.6 5.1A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-2.6 3.5M6.6 6.6C3.7 8.4 2 12 2 12s3.6 7 10 7a9.7 9.7 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18"></path>
+                  </svg>
+                </button>
+                <button type="button" class="input-icon-btn" id="totp-secret-copy" aria-label="Copier la clé secrète" title="Copier">
+                  <svg class="icon-copy" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"></path>
+                  </svg>
+                  <svg class="icon-done" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M5 12.5l4.5 4.5L19 7.5"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </li>
+          <li>
+            <span class="step-num" aria-hidden="true">2</span>
+            <div class="step-body">
+              <label for="totp-setup-code"><b>Saisissez le code généré</b></label>
+            </div>
+            <div class="otp step-aside">
+              <input id="totp-setup-code" class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6">
+              <div class="otp-slots" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+            </div>
+          </li>
+        </ol>
+      </div>
+
+      <div id="password-step" class="step" hidden>
+        <div class="field">
+          <label for="new-password">Nouveau mot de passe</label>
+          <div class="input-wrap">
+            <input id="new-password" type="password" autocomplete="new-password" maxlength="256">
+            <button type="button" class="input-icon-btn reveal" data-target="new-password" aria-label="Afficher le nouveau mot de passe" aria-pressed="false">
+              <svg class="icon-show" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle>
+              </svg>
+              <svg class="icon-hide" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M10.6 5.1A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-2.6 3.5M6.6 6.6C3.7 8.4 2 12 2 12s3.6 7 10 7a9.7 9.7 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="confirm-password">Confirmation</label>
+          <div class="input-wrap">
+            <input id="confirm-password" type="password" autocomplete="new-password" maxlength="256">
+            <button type="button" class="input-icon-btn reveal" data-target="confirm-password" aria-label="Afficher la confirmation" aria-pressed="false">
+              <svg class="icon-show" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle>
+              </svg>
+              <svg class="icon-hide" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M10.6 5.1A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-2.6 3.5M6.6 6.6C3.7 8.4 2 12 2 12s3.6 7 10 7a9.7 9.7 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="status" id="status" role="status" aria-live="polite" hidden></div>
+
+      <button type="submit" id="login-btn" class="btn-submit">
+        <span class="spinner" aria-hidden="true"></span>
+        <span id="login-btn-label">Connexion</span>
+      </button>
+      <button type="button" id="back-btn" class="btn-back" hidden>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 18l-6-6 6-6"></path></svg>
+        Retour à l'identification
+      </button>
+    </form>
+  </main>
+  <script type="module" src="/login.js"></script>
+</body>
+</html>

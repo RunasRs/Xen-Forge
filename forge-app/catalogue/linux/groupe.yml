@@ -1,0 +1,37 @@
+name: Groupe
+os: linux
+description: Crée ou supprime un groupe local
+parameters:
+  nom:
+    label: Nom du groupe
+    help: Lettres minuscules, chiffres, « _ » et « - », 32 caractères au plus
+    type: str
+    required: true
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+  gid:
+    label: GID
+    help: Vide = attribué par le système
+    type: int
+    min: 1
+    max: 60000
+  systeme:
+    label: Groupe système
+    help: GID pris dans la plage réservée aux groupes système
+    type: bool
+    default: false
+tasks:
+  - name: Nom de groupe valide
+    ansible.builtin.assert:
+      that: nom is match('^[a-z_][a-z0-9_-]{0,31}$')
+      fail_msg: "Nom de groupe : lettres minuscules, chiffres, « _ » et « - », 32 caractères au plus"
+      quiet: true
+  - name: Groupe
+    ansible.builtin.group:
+      name: "{{ nom }}"
+      state: "{{ etat }}"
+      gid: "{{ gid | default(omit) }}"
+      system: "{{ systeme }}"

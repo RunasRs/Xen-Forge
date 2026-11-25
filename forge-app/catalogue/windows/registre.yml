@@ -1,0 +1,42 @@
+name: Valeur du registre
+os: windows
+description: Crée, modifie ou supprime une valeur (ou une clé) du registre Windows
+parameters:
+  chemin:
+    label: Clé
+    help: ex. HKLM:\SOFTWARE\MonAppli ; créée si elle manque
+    type: str
+    required: true
+  nom:
+    label: Nom de la valeur
+    help: Vide = la clé elle-même (avec l'action absent, supprime la clé et son contenu)
+    type: str
+  donnee:
+    label: Donnée
+    help: Pour multistring, une valeur par ligne
+    type: str
+    multiline: true
+  type:
+    label: Type
+    type: str
+    choices: [string, expandstring, dword, qword, multistring, binary]
+    default: string
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Clé valide
+    ansible.builtin.assert:
+      that: chemin is match('^(HKLM|HKCU|HKCR|HKU|HKCC):\\\\')
+      fail_msg: "Clé : HKLM:\\…, HKCU:\\…, HKCR:\\…, HKU:\\… ou HKCC:\\…"
+      quiet: true
+  - name: Valeur du registre
+    ansible.windows.win_regedit:
+      path: "{{ chemin }}"
+      name: "{{ nom | default(omit) }}"
+      data: "{{ (donnee.split('\n') if type == 'multistring' else (donnee | int if type in ['dword', 'qword'] else donnee)) if donnee is defined else omit }}"
+      type: "{{ type }}"
+      state: "{{ etat }}"
+      delete_key: "{{ etat == 'absent' and nom is not defined }}"

@@ -1,0 +1,53 @@
+name: Autorité de certification
+os: windows
+description: Ajoute ou retire une autorité de certification du menu Certificats dans le magasin de l'ordinateur
+parameters:
+  autorite:
+    label: Autorité de certification
+    help: Certificat de type CA du menu Certificats
+    type: certificate_entry
+    cert_types: [ca]
+    required: true
+  magasin:
+    label: Magasin
+    help: racine = « Autorités de certification racines de confiance » ; intermediaire = « Autorités intermédiaires »
+    type: str
+    choices: [racine, intermediaire]
+    default: racine
+  etat:
+    label: Action
+    type: str
+    choices: [ajouter, retirer]
+    default: ajouter
+tasks:
+  - name: Autorité dans le magasin de l'ordinateur
+    ansible.windows.win_powershell:
+      parameters:
+        Pem: "{{ autorite.certificate }}"
+        Empreinte: "{{ autorite.thumbprint }}"
+        Magasin: "{{ 'Root' if magasin == 'racine' else 'CA' }}"
+        Ajouter: "{{ etat == 'ajouter' }}"
+      script: |
+        param([string]$Pem, [string]$Empreinte, [string]$Magasin, [object]$Ajouter)
+        $ErrorActionPreference = 'Stop'
+        $Ajouter = [Convert]::ToBoolean("$Ajouter")
+        $chemin = "Cert:\LocalMachine\$Magasin\$Empreinte"
+        $present = Test-Path $chemin
+        $Ansible.Changed = $false
+        if ($Ajouter -and -not $present) {
+            $der = [Convert]::FromBase64String(($Pem -replace '-----[A-Z ]+-----', '' -replace '\s', ''))
+            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(,$der)
+            if ($cert.Thumbprint -ne $Empreinte) { throw "Empreinte inattendue $($cert.Thumbprint)" }
+            $store = New-Object System.Security.Cryptography.X509Certificates.X509Store($Magasin, 'LocalMachine')
+            $store.Open('ReadWrite')
+            try { $store.Add($cert) } finally { $store.Close() }
+            $Ansible.Changed = $true
+        } elseif (-not $Ajouter -and $present) {
+            Remove-Item $chemin
+            $Ansible.Changed = $true
+        }
+        "$Magasin : $Empreinte $(if ($Ajouter) { 'présente' } else { 'absente' })"
+    register: forge_ca_win
+  - name: Bilan
+    ansible.builtin.debug:
+      msg: "{{ autorite.name }} ({{ autorite.subject }}, jusqu'au {{ autorite.not_after[:10] }}) : {{ forge_ca_win.output | default([]) | first | default('mode vérification, rien appliqué') }}"

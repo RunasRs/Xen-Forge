@@ -1,0 +1,93 @@
+name: Nouveau disque
+os: linux
+description: Prépare un disque vide ajouté à la VM, ex. /dev/xvdb, avec une partition sur tout le disque, puis le formate et le monte de façon permanente. Refuse tout disque qui n'est pas vierge, sauf s'il a déjà été préparé par cette brique pour le même point de montage
+parameters:
+  disque:
+    label: Disque
+    help: ex. /dev/xvdb ; voir lsblk sur le serveur
+    type: str
+    format: path_linux
+    required: true
+  systeme_fichiers:
+    label: Système de fichiers
+    type: str
+    choices: [xfs, ext4]
+    default: xfs
+  point_montage:
+    label: Point de montage
+    help: ex. /data ; créé s'il manque
+    type: str
+    format: path_linux
+    required: true
+  options:
+    label: Options de montage
+    type: str
+    default: defaults
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - disque is match('^/dev/[a-z0-9/_-]+$')
+        - point_montage not in ['/', '/boot', '/usr', '/var', '/etc', '/home']
+        - options is match('^[a-z0-9=,_-]+$')
+      fail_msg: "Disque : /dev/… ; point de montage système refusé ; options : minuscules, chiffres, « = , _ - »"
+      quiet: true
+  - name: Liste des paquets rafraîchie (apt)
+    ansible.builtin.apt:
+      update_cache: true
+      cache_valid_time: 3600
+    when: ansible_facts.pkg_mgr == 'apt'
+  - name: Paquets du système de fichiers
+    ansible.builtin.package:
+      name: "{{ ['parted', 'xfsprogs'] if systeme_fichiers == 'xfs' else ['parted', 'e2fsprogs'] }}"
+      state: present
+  - name: Contenu du disque
+    ansible.builtin.command: lsblk -nrpo NAME,TYPE,FSTYPE,MOUNTPOINT "{{ disque }}"
+    register: forge_lsblk
+    changed_when: false
+    check_mode: false
+  - name: Partition prévue
+    ansible.builtin.set_fact:
+      forge_partition: "{{ disque ~ ('p1' if disque[-1] is match('[0-9]') else '1') }}"
+  - name: Disque libre ou déjà préparé par cette brique
+    ansible.builtin.assert:
+      that: >-
+        (forge_lsblk.stdout_lines | length == 1 and forge_lsblk.stdout_lines[0].split(' ')[2:] | join('') == '')
+        or (forge_lsblk.stdout_lines | length == 2 and forge_lsblk.stdout_lines[0].split(' ')[2:] | join('') == ''
+        and forge_lsblk.stdout_lines[1].split(' ')[0] == forge_partition
+        and forge_lsblk.stdout_lines[1].split(' ')[2] == systeme_fichiers
+        and forge_lsblk.stdout_lines[1].split(' ')[3:] | join(' ') == point_montage)
+      fail_msg: "{{ disque }} contient déjà des partitions ou des données : rien n'est modifié"
+      quiet: true
+  - name: Partition sur tout le disque
+    community.general.parted:
+      device: "{{ disque }}"
+      number: 1
+      label: gpt
+      part_start: 0%
+      part_end: 100%
+      state: present
+  - name: Système de fichiers
+    community.general.filesystem:
+      dev: "{{ forge_partition }}"
+      fstype: "{{ systeme_fichiers }}"
+  - name: Identifiant du système de fichiers
+    ansible.builtin.command: blkid -s UUID -o value "{{ forge_partition }}"
+    register: forge_blkid
+    changed_when: false
+    check_mode: false
+  - name: Montage permanent
+    ansible.posix.mount:
+      path: "{{ point_montage }}"
+      src: "UUID={{ forge_blkid.stdout }}"
+      fstype: "{{ systeme_fichiers }}"
+      opts: "{{ options }}"
+      state: mounted
+  - name: Bilan
+    ansible.builtin.command: df -h "{{ point_montage }}"
+    register: forge_df
+    changed_when: false
+    check_mode: false
+  - name: Espace disponible
+    ansible.builtin.debug:
+      msg: "{{ forge_df.stdout_lines }}"

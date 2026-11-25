@@ -1,0 +1,35 @@
+name: Variable d'environnement
+os: windows
+description: Définit ou retire une variable d'environnement de la machine (tous les comptes) ou du compte de connexion
+parameters:
+  nom:
+    label: Variable
+    type: str
+    required: true
+  valeur:
+    label: Valeur
+    type: str
+  portee:
+    label: Portée
+    type: str
+    choices: [machine, user]
+    default: machine
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - nom is match('^[A-Za-z_][A-Za-z0-9_()]*$')
+        - etat == 'absent' or valeur is defined
+      fail_msg: "Variable : lettres, chiffres, « _ ( ) » ; valeur obligatoire"
+      quiet: true
+  - name: Variable d'environnement
+    ansible.windows.win_environment:
+      name: "{{ nom }}"
+      value: "{{ valeur | default(omit) }}"
+      level: "{{ portee }}"
+      state: "{{ etat }}"

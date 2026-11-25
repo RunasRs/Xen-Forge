@@ -1,0 +1,23 @@
+name: Serveurs DNS
+os: windows
+description: Règle les serveurs DNS des cartes réseau du serveur
+parameters:
+  serveurs:
+    label: Serveurs DNS
+    help: Adresses IPv4, dans l'ordre ; vide = retour au DHCP
+    type: list
+  cartes:
+    label: Cartes réseau
+    help: Noms des cartes (Get-NetAdapter), jokers acceptés ; * = toutes
+    type: list
+    default: ['*']
+tasks:
+  - name: Adresses valides
+    ansible.builtin.assert:
+      that: serveurs is not defined or serveurs | reject('match', '^([0-9]{1,3}\.){3}[0-9]{1,3}$') | list | length == 0
+      fail_msg: "Serveurs DNS : adresses IPv4"
+      quiet: true
+  - name: Serveurs DNS
+    ansible.windows.win_dns_client:
+      adapter_names: "{{ cartes }}"
+      dns_servers: "{{ serveurs | default([]) }}"

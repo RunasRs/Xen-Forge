@@ -1,0 +1,39 @@
+name: Groupe local
+os: windows
+description: Crée ou supprime un groupe local et gère ses membres (comptes locaux ou du domaine)
+parameters:
+  nom:
+    label: Nom du groupe
+    help: Groupe existant ou à créer, ex. Utilisateurs du Bureau à distance
+    type: str
+    required: true
+  description_groupe:
+    label: Description
+    type: str
+  membres:
+    label: Membres
+    help: ex. compte-local, CORP\Groupe-Admins, admin@corp.exemple.lan
+    type: list
+  gestion_membres:
+    label: Membres
+    help: ajouter = garde les autres membres ; retirer = retire ceux de la liste ; exactement = la liste devient la seule liste des membres
+    type: str
+    choices: [ajouter, retirer, exactement]
+    default: ajouter
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Groupe local
+    ansible.windows.win_group:
+      name: "{{ nom }}"
+      description: "{{ description_groupe | default(omit) }}"
+      state: "{{ etat }}"
+  - name: Membres du groupe
+    ansible.windows.win_group_membership:
+      name: "{{ nom }}"
+      members: "{{ membres }}"
+      state: "{{ {'ajouter': 'present', 'retirer': 'absent', 'exactement': 'pure'}[gestion_membres] }}"
+    when: etat == 'present' and membres is defined

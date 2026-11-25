@@ -1,0 +1,13 @@
+name: Fuseau horaire
+os: windows
+description: Règle le fuseau horaire du serveur
+parameters:
+  fuseau:
+    label: Fuseau horaire
+    help: Identifiant Windows (tzutil /l), ex. Romance Standard Time (Paris), UTC, Eastern Standard Time
+    type: str
+    default: Romance Standard Time
+tasks:
+  - name: Fuseau horaire
+    ansible.windows.win_timezone:
+      timezone: "{{ fuseau }}"

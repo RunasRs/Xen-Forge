@@ -1,0 +1,29 @@
+name: Nom d'hôte
+os: linux
+description: Change le nom d'hôte du serveur et, si demandé, l'entrée 127.0.1.1 du fichier /etc/hosts
+parameters:
+  nom:
+    label: Nom d'hôte
+    type: str
+    format: hostname
+    required: true
+  domaine:
+    label: Domaine DNS
+    help: Vide = pas de nom complet dans /etc/hosts
+    type: str
+    format: fqdn
+  fichier_hosts:
+    label: Mettre à jour /etc/hosts
+    help: Ligne « 127.0.1.1 nom.domaine nom », pour que le serveur résolve son propre nom
+    type: bool
+    default: true
+tasks:
+  - name: Nom d'hôte
+    ansible.builtin.hostname:
+      name: "{{ nom }}"
+  - name: Entrée du serveur dans /etc/hosts
+    ansible.builtin.lineinfile:
+      path: /etc/hosts
+      regexp: '^127\.0\.1\.1\s'
+      line: "127.0.1.1 {{ (nom ~ '.' ~ domaine ~ ' ' ~ nom) if domaine is defined else nom }}"
+    when: fichier_hosts

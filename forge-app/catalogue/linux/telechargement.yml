@@ -1,0 +1,53 @@
+name: Téléchargement
+os: linux
+description: Télécharge un fichier depuis une adresse http(s) sur le serveur, avec contrôle de l'empreinte si elle est fournie
+parameters:
+  url:
+    label: Adresse
+    type: str
+    format: url
+    required: true
+  destination:
+    label: Fichier de destination
+    type: str
+    format: path_linux
+    required: true
+  empreinte:
+    label: Empreinte
+    help: Format algorithme:valeur, ex. sha256:9f86d0… ; le téléchargement échoue si elle ne correspond pas. Vide = sans contrôle
+    type: str
+  remplacer:
+    label: Retélécharger à chaque exécution
+    help: Non = le fichier déjà présent est gardé (sauf si l'empreinte ne correspond plus)
+    type: bool
+    default: false
+  proprietaire:
+    label: Propriétaire
+    type: str
+    default: root
+  mode:
+    label: Droits
+    type: str
+    default: '0644'
+  verifier_certificat:
+    label: Vérifier le certificat HTTPS
+    type: bool
+    default: true
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - empreinte is not defined or empreinte is match('^(md5|sha1|sha224|sha256|sha384|sha512):[0-9a-fA-F]+$')
+        - mode is match('^0?[0-7]{3,4}$')
+      fail_msg: "Empreinte : algorithme:valeur hexadécimale ; droits : notation octale"
+      quiet: true
+  - name: Téléchargement
+    ansible.builtin.get_url:
+      url: "{{ url }}"
+      dest: "{{ destination }}"
+      checksum: "{{ empreinte | default(omit) }}"
+      force: "{{ remplacer }}"
+      owner: "{{ proprietaire }}"
+      mode: "{{ mode }}"
+      validate_certs: "{{ verifier_certificat }}"
+      timeout: 60

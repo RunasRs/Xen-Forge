@@ -1,0 +1,76 @@
+name: Dépôt de paquets
+os: linux
+description: Ajoute ou retire un dépôt de paquets tiers avec sa clé de signature (apt, dnf ou zypper)
+parameters:
+  nom:
+    label: Nom du dépôt
+    help: Identifiant court, ex. docker, nginx
+    type: str
+    required: true
+  url:
+    label: Adresse du dépôt
+    help: apt = racine du dépôt, ex. https://download.docker.com/linux/debian ; dnf et zypper = adresse complète (baseurl), $releasever et $basearch acceptés
+    type: str
+    required: true
+  cle:
+    label: Adresse de la clé de signature
+    help: Clé GPG publique du dépôt ; vide = paquets non vérifiés (déconseillé)
+    type: str
+    format: url
+  suite:
+    label: Suite (apt)
+    help: Vide = nom de code de la distribution (ex. trixie, noble)
+    type: str
+  composants:
+    label: Composants (apt)
+    type: list
+    default: [main]
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - ansible_facts.pkg_mgr in ['apt', 'dnf', 'dnf5', 'zypper']
+        - nom is match('^[a-z0-9][a-z0-9_.-]{0,62}$')
+        - url is match('^https?://\S+$')
+      fail_msg: "Gestionnaire apt, dnf ou zypper ; nom : minuscules, chiffres, « _ . - » ; adresse http(s)"
+      quiet: true
+  - name: Dépôt (apt)
+    ansible.builtin.deb822_repository:
+      name: "{{ nom }}"
+      uris: "{{ url }}"
+      suites: "{{ suite | default(ansible_facts.distribution_release) }}"
+      components: "{{ composants }}"
+      signed_by: "{{ cle | default(omit) }}"
+      state: "{{ etat }}"
+    register: forge_depot_apt
+    when: ansible_facts.pkg_mgr == 'apt'
+  - name: Liste des paquets rafraîchie (apt)
+    ansible.builtin.apt:
+      update_cache: true
+    when: ansible_facts.pkg_mgr == 'apt' and forge_depot_apt.changed
+  - name: Dépôt (dnf)
+    ansible.builtin.yum_repository:
+      name: "{{ nom }}"
+      description: "{{ nom }}"
+      baseurl: "{{ url }}"
+      gpgcheck: "{{ cle is defined }}"
+      gpgkey: "{{ cle | default(omit) }}"
+      state: "{{ etat }}"
+    when: ansible_facts.pkg_mgr in ['dnf', 'dnf5']
+  - name: Dépôt (zypper)
+    community.general.zypper_repository:
+      name: "{{ nom }}"
+      repo: "{{ url }}"
+      auto_import_keys: "{{ cle is defined }}"
+      disable_gpg_check: "{{ cle is not defined }}"
+      state: "{{ etat }}"
+    when: ansible_facts.pkg_mgr == 'zypper'
+  - name: Clé du dépôt (zypper)
+    ansible.builtin.rpm_key:
+      key: "{{ cle }}"
+    when: ansible_facts.pkg_mgr == 'zypper' and cle is defined and etat == 'present'

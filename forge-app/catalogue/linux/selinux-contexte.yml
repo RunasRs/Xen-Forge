@@ -1,0 +1,42 @@
+name: "SELinux : contexte d'un dossier"
+os: linux
+description: Donne un type SELinux permanent à un dossier et à son contenu, puis réétiquette les fichiers ; ignorée si SELinux est désactivé
+parameters:
+  chemin:
+    label: Dossier
+    type: str
+    format: path_linux
+    required: true
+  type:
+    label: Type SELinux
+    help: ex. httpd_sys_content_t (lecture par le serveur web), httpd_sys_rw_content_t (écriture)
+    type: str
+    default: httpd_sys_content_t
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that: type is match('^[a-z0-9_]+_t$') and chemin is match('^/[^\s()|]+$')
+      fail_msg: "Type : nom SELinux finissant par _t ; dossier : chemin absolu sans espace ni « ( ) | »"
+      quiet: true
+  - name: Outils SELinux
+    ansible.builtin.package:
+      name: "{{ ['python3-libsemanage', 'policycoreutils-python-utils'] if ansible_facts.os_family == 'RedHat' else ['python3-semanage', 'policycoreutils-python-utils'] }}"
+      state: present
+    when: ansible_facts.selinux.status | default('disabled') == 'enabled'
+  - name: Règle de contexte
+    community.general.sefcontext:
+      target: "{{ chemin | regex_replace('/$', '') }}(/.*)?"
+      setype: "{{ type }}"
+      state: "{{ etat }}"
+    register: forge_sefcontext
+    when: ansible_facts.selinux.status | default('disabled') == 'enabled'
+  - name: Fichiers réétiquetés
+    ansible.builtin.command: restorecon -R -v "{{ chemin }}"
+    register: forge_restorecon
+    changed_when: forge_restorecon.stdout | length > 0
+    when: ansible_facts.selinux.status | default('disabled') == 'enabled' and forge_sefcontext.changed

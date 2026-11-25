@@ -1,0 +1,51 @@
+name: Contrôle HTTP
+os: linux
+description: Vérifie depuis le serveur qu'une adresse http(s) répond avec le code attendu (et, si demandé, un texte), en réessayant pendant un délai ; l'étape échoue sinon
+parameters:
+  url:
+    label: Adresse
+    help: ex. http://127.0.0.1/, https://localhost:8443/sante
+    type: str
+    format: url
+    required: true
+  codes:
+    label: Codes HTTP attendus
+    type: list
+    default: ['200']
+  texte:
+    label: Texte attendu
+    help: Doit apparaître dans la réponse ; vide = pas de contrôle du contenu
+    type: str
+  verifier_certificat:
+    label: Vérifier le certificat HTTPS
+    help: Non pour un certificat autosigné
+    type: bool
+    default: false
+  delai:
+    label: Délai maximal (secondes)
+    type: int
+    min: 5
+    max: 900
+    default: 60
+tasks:
+  - name: Codes valides
+    ansible.builtin.assert:
+      that: codes | reject('match', '^[1-5][0-9]{2}$') | list | length == 0
+      fail_msg: "Codes HTTP : trois chiffres, ex. 200, 301"
+      quiet: true
+  - name: Réponse de l'adresse
+    ansible.builtin.uri:
+      url: "{{ url }}"
+      status_code: "{{ codes | map('int') | list }}"
+      validate_certs: "{{ verifier_certificat }}"
+      return_content: "{{ texte is defined }}"
+      follow_redirects: none
+      timeout: 10
+    register: forge_http
+    until: forge_http.status in (codes | map('int') | list) and (texte is not defined or texte in forge_http.content | default(''))
+    retries: "{{ (delai / 5) | round(0, 'ceil') | int }}"
+    delay: 5
+    check_mode: false
+  - name: Bilan
+    ansible.builtin.debug:
+      msg: "{{ url }} : HTTP {{ forge_http.status }}"

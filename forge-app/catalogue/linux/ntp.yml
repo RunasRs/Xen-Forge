@@ -1,0 +1,67 @@
+name: Synchronisation de l'heure (chrony)
+os: linux
+description: Installe chrony et le synchronise sur les serveurs de temps indiqués, à la place des serveurs ou pools par défaut
+parameters:
+  serveurs:
+    label: Serveurs de temps
+    help: Noms ou adresses IP, ex. ntp.exemple.lan, 0.fr.pool.ntp.org
+    type: list
+    required: true
+  pool:
+    label: Pools
+    help: Déclare chaque serveur comme un pool (plusieurs adresses derrière un même nom, ex. pool.ntp.org)
+    type: bool
+    default: false
+tasks:
+  - name: Serveurs valides
+    ansible.builtin.assert:
+      that: serveurs | reject('match', '^[A-Za-z0-9.:-]+$') | list | length == 0
+      fail_msg: "Serveurs de temps : noms DNS ou adresses IP"
+      quiet: true
+  - name: Listes apt présentes
+    ansible.builtin.find:
+      paths: /var/lib/apt/lists
+      patterns: '*_Packages*'
+    register: forge_listes_apt
+    when: ansible_facts.pkg_mgr == 'apt'
+  - name: Liste des paquets rafraîchie (apt)
+    ansible.builtin.apt:
+      update_cache: true
+      cache_valid_time: "{{ 3600 if forge_listes_apt.matched else 0 }}"
+    when: ansible_facts.pkg_mgr == 'apt'
+    check_mode: false
+    changed_when: false
+  - name: Paquet chrony
+    ansible.builtin.package:
+      name: chrony
+      state: present
+  - name: Emplacement de la configuration
+    ansible.builtin.set_fact:
+      forge_chrony_conf: "{{ '/etc/chrony/chrony.conf' if ansible_facts.os_family == 'Debian' else '/etc/chrony.conf' }}"
+      forge_chrony_service: "{{ 'chrony' if ansible_facts.os_family == 'Debian' else 'chronyd' }}"
+  - name: Serveurs et pools par défaut désactivés
+    ansible.builtin.replace:
+      path: "{{ forge_chrony_conf }}"
+      regexp: "^(pool|server|sourcedir)(?!\\s+({{ serveurs | map('regex_escape') | join('|') }})\\s+iburst$)(\\s.*)$"
+      replace: '# \1\3  # désactivé par Forge'
+    register: forge_chrony_defaut
+  - name: Serveurs de temps
+    ansible.builtin.blockinfile:
+      path: "{{ forge_chrony_conf }}"
+      marker: "# {mark} serveurs de temps Forge"
+      block: "{{ serveurs | map('regex_replace', '^(.*)$', ('pool' if pool else 'server') ~ ' \\1 iburst') | join('\n') }}"
+    register: forge_chrony_serveurs
+  - name: Service chrony démarré au démarrage
+    ansible.builtin.systemd_service:
+      name: "{{ forge_chrony_service }}"
+      state: "{{ 'restarted' if forge_chrony_defaut.changed or forge_chrony_serveurs.changed else 'started' }}"
+      enabled: true
+  - name: Sources de temps
+    ansible.builtin.command: chronyc -n sources
+    register: forge_chrony_sources
+    changed_when: false
+    check_mode: false
+    failed_when: false
+  - name: Bilan
+    ansible.builtin.debug:
+      msg: "{{ forge_chrony_sources.stdout_lines | default([]) }}"

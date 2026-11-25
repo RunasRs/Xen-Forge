@@ -1,0 +1,43 @@
+name: Bureau à distance
+os: windows
+description: Active ou désactive le Bureau à distance (RDP), avec l'authentification réseau (NLA) et les règles du pare-feu correspondantes
+parameters:
+  actif:
+    label: Bureau à distance
+    type: bool
+    default: true
+  nla:
+    label: Authentification au niveau du réseau (NLA)
+    type: bool
+    default: true
+  pare_feu:
+    label: Règles du pare-feu
+    help: Active ou désactive le groupe de règles « Bureau à distance » en même temps
+    type: bool
+    default: true
+tasks:
+  - name: Connexions Bureau à distance
+    ansible.windows.win_regedit:
+      path: HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server
+      name: fDenyTSConnections
+      data: "{{ 0 if actif else 1 }}"
+      type: dword
+  - name: Authentification au niveau du réseau
+    ansible.windows.win_regedit:
+      path: HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp
+      name: UserAuthentication
+      data: "{{ 1 if nla else 0 }}"
+      type: dword
+  - name: Règles du pare-feu
+    ansible.windows.win_powershell:
+      parameters:
+        Actif: "{{ actif }}"
+      script: |
+        [CmdletBinding(SupportsShouldProcess)]
+        param([bool]$Actif)
+        $regles = Get-NetFirewallRule -Group '@FirewallAPI.dll,-28752' -ErrorAction SilentlyContinue
+        $voulu = if ($Actif) { 'True' } else { 'False' }
+        $a_changer = @($regles | Where-Object { $_.Enabled -ne $voulu })
+        if ($a_changer.Count -gt 0 -and -not $Ansible.CheckMode) { $a_changer | Set-NetFirewallRule -Enabled $voulu }
+        $Ansible.Changed = $a_changer.Count -gt 0
+    when: pare_feu

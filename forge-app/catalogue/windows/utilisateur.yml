@@ -1,0 +1,55 @@
+name: Utilisateur local
+os: windows
+description: Crée, modifie ou supprime un compte local avec son mot de passe (coffre-fort) et ses groupes
+parameters:
+  nom:
+    label: Nom du compte
+    help: '20 caractères au plus, sans les caractères " / \ [ ] : ; | = , + * ? < > @'
+    type: str
+    required: true
+  mot_de_passe:
+    label: Mot de passe
+    help: Entrée « mot de passe » du coffre-fort ; seul son mot de passe est utilisé. Obligatoire à la création
+    type: vault_entry
+  appliquer_mot_de_passe:
+    label: Appliquer le mot de passe
+    type: str
+    choices: [à la création, à chaque exécution]
+    default: à la création
+  nom_complet:
+    label: Nom complet
+    type: str
+  description_compte:
+    label: Description
+    type: str
+  groupes:
+    label: Groupes
+    help: Groupes locaux auxquels le compte est ajouté, ex. Administrateurs ou Administrators selon la langue ; ses autres groupes sont conservés
+    type: list
+  sans_expiration:
+    label: Mot de passe sans expiration
+    type: bool
+    default: true
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Nom valide
+    ansible.builtin.assert:
+      that: nom is match('^[^"/\\\\\[\]:;|=,+*?<>@]{1,20}$')
+      fail_msg: "Nom : 20 caractères au plus, sans caractère interdit par Windows"
+      quiet: true
+  - name: Compte local
+    ansible.windows.win_user:
+      name: "{{ nom }}"
+      password: "{{ mot_de_passe.password if mot_de_passe is defined else omit }}"
+      update_password: "{{ 'always' if appliquer_mot_de_passe == 'à chaque exécution' else 'on_create' }}"
+      fullname: "{{ nom_complet | default(omit) }}"
+      description: "{{ description_compte | default(omit) }}"
+      groups: "{{ groupes | default(omit) }}"
+      groups_action: add
+      password_never_expires: "{{ sans_expiration if etat == 'present' else omit }}"
+      state: "{{ etat }}"
+    no_log: true

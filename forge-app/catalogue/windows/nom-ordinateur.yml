@@ -1,0 +1,23 @@
+name: Nom de l'ordinateur
+os: windows
+description: Renomme le serveur ; le nouveau nom est pris en compte au redémarrage (étape Redémarrage contrôlé à placer après)
+parameters:
+  nom:
+    label: Nom de l'ordinateur
+    help: 15 caractères au plus, lettres, chiffres et « - »
+    type: str
+    required: true
+tasks:
+  - name: Nom valide
+    ansible.builtin.assert:
+      that: nom is match('^(?=.*[A-Za-z-])[A-Za-z0-9-]{1,15}$')
+      fail_msg: "Nom : 15 caractères au plus, lettres, chiffres et « - », pas uniquement des chiffres"
+      quiet: true
+  - name: Nom de l'ordinateur
+    ansible.windows.win_hostname:
+      name: "{{ nom }}"
+    register: forge_hostname
+  - name: Redémarrage demandé
+    ansible.builtin.set_fact:
+      forge_reboot_pending: true
+    when: forge_hostname.reboot_required | default(false)

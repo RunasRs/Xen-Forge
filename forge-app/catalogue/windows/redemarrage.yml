@@ -1,0 +1,48 @@
+name: Redémarrage contrôlé
+os: windows
+description: Redémarre chaque serveur, toujours ou seulement si Windows l'exige, puis attend qu'il réponde à nouveau
+parameters:
+  condition:
+    label: Redémarrer
+    help: « si nécessaire » ne redémarre que si Windows attend un redémarrage (mises à jour, composants, fichiers, renommage, domaine) ou si une étape précédente l'a demandé (ex. fichier d'échange)
+    type: str
+    choices: [toujours, si nécessaire]
+    default: si nécessaire
+  delai_max:
+    label: Délai maximal de retour (minutes)
+    help: Le job échoue si le serveur ne répond pas de nouveau dans ce délai
+    type: int
+    min: 1
+    max: 120
+    default: 15
+tasks:
+  - name: Redémarrage en attente
+    ansible.windows.win_powershell:
+      script: |
+        $raisons = @()
+        if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') { $raisons += 'composants Windows' }
+        if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') { $raisons += 'Windows Update' }
+        if ((Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -ErrorAction SilentlyContinue).PendingFileRenameOperations) { $raisons += 'fichiers à remplacer' }
+        $actif = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\ComputerName\ActiveComputerName').ComputerName
+        $prevu = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName').ComputerName
+        if ($actif -ne $prevu) { $raisons += 'renommage' }
+        if (Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\JoinDomain') { $raisons += 'intégration au domaine' }
+        $Ansible.Changed = $false
+        [pscustomobject]@{ raisons = $raisons }
+    register: forge_attente
+    check_mode: false
+  - name: Redémarrage
+    ansible.windows.win_reboot:
+      reboot_timeout: "{{ delai_max * 60 }}"
+      msg: Redémarrage demandé par Forge
+    register: forge_reboot
+    when: condition == 'toujours' or forge_attente.output[0].raisons | length > 0 or (forge_reboot_pending | default(false)) | bool
+  - name: Demande de redémarrage traitée
+    ansible.builtin.set_fact:
+      forge_reboot_pending: false
+    when: forge_reboot is not skipped
+  - name: Bilan
+    ansible.builtin.debug:
+      msg: >-
+        {{ ('Redémarré, de retour en ' ~ forge_reboot.elapsed | default(0) ~ ' s') if forge_reboot is not skipped else 'Aucun redémarrage nécessaire' }}{{
+        (' ; en attente : ' ~ forge_attente.output[0].raisons | join(', ')) if forge_attente.output[0].raisons | length > 0 else '' }}

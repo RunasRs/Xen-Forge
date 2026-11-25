@@ -1,0 +1,13 @@
+name: Mode de gestion de l'alimentation
+os: windows
+description: Choisit le mode de gestion de l'alimentation actif, ex. Performances élevées pour un serveur
+parameters:
+  mode:
+    label: Mode
+    type: str
+    choices: [Performances élevées, Utilisation normale, Économie d'énergie]
+    default: Performances élevées
+tasks:
+  - name: Mode de gestion de l'alimentation
+    community.windows.win_power_plan:
+      guid: "{{ {'Performances élevées': '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c', 'Utilisation normale': '381b4222-f694-41f0-9685-ff5bb260df2e', \"Économie d'énergie\": 'a1841308-3541-4fab-bc81-f71556f20b4a'}[mode] }}"

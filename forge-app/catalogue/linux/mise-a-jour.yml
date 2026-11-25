@@ -1,0 +1,63 @@
+name: Mise à jour du système
+os: linux
+description: Met à jour tous les paquets avec le gestionnaire de la cible (apt, dnf ou zypper), puis redémarre si nécessaire
+parameters:
+  redemarrer:
+    label: Redémarrer si nécessaire
+    help: Redémarre seulement si la mise à jour l'exige (noyau, bibliothèques système)
+    type: bool
+    default: false
+tasks:
+  - name: Gestionnaire de paquets pris en charge
+    ansible.builtin.assert:
+      that: ansible_facts.pkg_mgr in ['apt', 'dnf', 'dnf5', 'zypper']
+      fail_msg: "Gestionnaire de paquets {{ ansible_facts.pkg_mgr }} non pris en charge"
+      quiet: true
+  - name: Mise à jour (apt)
+    ansible.builtin.apt:
+      update_cache: true
+      upgrade: dist
+    when: ansible_facts.pkg_mgr == 'apt'
+  - name: Mise à jour (dnf)
+    ansible.builtin.dnf:
+      name: "*"
+      state: latest
+      update_cache: true
+    when: ansible_facts.pkg_mgr == 'dnf'
+  - name: Mise à jour (dnf5)
+    ansible.builtin.dnf5:
+      name: "*"
+      state: latest
+      update_cache: true
+    when: ansible_facts.pkg_mgr == 'dnf5'
+  - name: Mise à jour (zypper)
+    community.general.zypper:
+      name: "*"
+      state: latest
+      update_cache: true
+    when: ansible_facts.pkg_mgr == 'zypper'
+  - name: Redémarrage requis (apt)
+    ansible.builtin.stat:
+      path: /var/run/reboot-required
+    register: forge_reboot_flag
+    when: redemarrer and ansible_facts.pkg_mgr == 'apt'
+  - name: Redémarrage requis (dnf)
+    ansible.builtin.command: dnf needs-restarting -r
+    register: forge_needs_restarting
+    changed_when: false
+    failed_when: false
+    when: redemarrer and ansible_facts.pkg_mgr in ['dnf', 'dnf5']
+  - name: Redémarrage requis (zypper)
+    ansible.builtin.command: zypper needs-rebooting
+    register: forge_needs_rebooting
+    changed_when: false
+    failed_when: false
+    when: redemarrer and ansible_facts.pkg_mgr == 'zypper'
+  - name: Redémarrage
+    ansible.builtin.reboot:
+      reboot_timeout: 900
+    when: >-
+      redemarrer and (
+      (forge_reboot_flag.stat.exists | default(false))
+      or (forge_needs_restarting.rc | default(0)) == 1
+      or (forge_needs_rebooting.rc | default(0)) == 102)

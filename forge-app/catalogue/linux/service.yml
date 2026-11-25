@@ -1,0 +1,41 @@
+name: Service
+os: linux
+description: Démarre, arrête, redémarre ou recharge un service systemd et règle son lancement au démarrage
+parameters:
+  nom:
+    label: Service
+    help: Nom de l'unité systemd, ex. nginx, sshd, chronyd
+    type: str
+    required: true
+  operation:
+    label: Action
+    type: str
+    choices: [démarrer, arrêter, redémarrer, recharger, aucune]
+    default: démarrer
+  au_demarrage:
+    label: Au démarrage du serveur
+    type: str
+    choices: [activé, désactivé, inchangé]
+    default: activé
+tasks:
+  - name: Nom valide
+    ansible.builtin.assert:
+      that: nom is match('^[A-Za-z0-9@_.:-]+$')
+      fail_msg: "Service : nom d'unité systemd"
+      quiet: true
+  - name: Services du serveur
+    ansible.builtin.service_facts:
+  - name: Service présent
+    ansible.builtin.set_fact:
+      forge_service_present: "{{ (nom ~ '.service') in ansible_facts.services or nom in ansible_facts.services }}"
+  - name: Service existant
+    ansible.builtin.assert:
+      that: forge_service_present or (operation in ['arrêter', 'aucune'] and au_demarrage in ['désactivé', 'inchangé'])
+      fail_msg: "Service {{ nom }} introuvable : installer son paquet avant cette étape (brique Paquets)"
+      quiet: true
+  - name: Service
+    ansible.builtin.systemd_service:
+      name: "{{ nom }}"
+      state: "{{ {'démarrer': 'started', 'arrêter': 'stopped', 'redémarrer': 'restarted', 'recharger': 'reloaded'}[operation] | default(omit) }}"
+      enabled: "{{ {'activé': true, 'désactivé': false}[au_demarrage] | default(omit) }}"
+    when: forge_service_present

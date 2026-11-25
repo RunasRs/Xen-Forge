@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <style>
+    .top { fill: #EA580C; stroke: #EA580C; } .mid { fill: #7C3AED; stroke: #7C3AED; } .base { fill: #2563EB; stroke: #2563EB; }
+    @media (prefers-color-scheme: dark) { .top { fill: #F7783F; stroke: #F7783F; } .mid { fill: #9B7BFA; stroke: #9B7BFA; } .base { fill: #4C8DFF; stroke: #4C8DFF; } }
+  </style>
+  <g transform="translate(16 16) scale(1.08) translate(-16 -16.5)" stroke-width=".7" stroke-linejoin="round">
+    <path class="top" d="M4 8.5H27Q27.8 8.5 27.8 9.3V11.8Q27.8 12.6 27 12.6H11.5C8.5 12.6 5.8 11 4 8.5Z"/>
+    <path class="mid" d="M12.6 13.6H23.4Q21.4 15.8 21.6 18.3H14.4Q14.6 15.8 12.6 13.6Z"/>
+    <path class="base" d="M14.4 19.3H21.6Q22 21.6 25.5 22.4V23.8Q25.5 24.5 24.8 24.5H11.2Q10.5 24.5 10.5 23.8V22.4Q14 21.6 14.4 19.3Z"/>
+  </g>
+</svg>

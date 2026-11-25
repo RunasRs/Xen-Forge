@@ -1,0 +1,65 @@
+name: Extraire une archive
+os: linux
+description: Extrait une archive tar, tar.gz, tar.bz2, tar.xz ou zip, présente sur le serveur ou téléchargée, dans un dossier
+parameters:
+  source:
+    label: Archive
+    help: Chemin sur le serveur, ex. /tmp/appli.tar.gz, ou adresse http(s)
+    type: str
+    required: true
+  destination:
+    label: Dossier de destination
+    help: Créé s'il manque
+    type: str
+    format: path_linux
+    required: true
+  temoin:
+    label: Fichier témoin
+    help: Chemin d'un fichier de l'archive ; s'il existe déjà, l'archive n'est pas extraite de nouveau. Vide = extraction comparée à chaque exécution
+    type: str
+    format: path_linux
+  proprietaire:
+    label: Propriétaire
+    type: str
+    default: root
+  groupe:
+    label: Groupe
+    type: str
+    default: root
+tasks:
+  - name: Source valide
+    ansible.builtin.assert:
+      that: source is match('^(/|https?://)')
+      fail_msg: "Archive : chemin absolu ou adresse http(s)"
+      quiet: true
+  - name: Listes apt présentes
+    ansible.builtin.find:
+      paths: /var/lib/apt/lists
+      patterns: '*_Packages*'
+    register: forge_listes_apt
+    when: ansible_facts.pkg_mgr == 'apt'
+  - name: Liste des paquets rafraîchie (apt)
+    ansible.builtin.apt:
+      update_cache: true
+      cache_valid_time: "{{ 3600 if forge_listes_apt.matched else 0 }}"
+    when: ansible_facts.pkg_mgr == 'apt'
+    check_mode: false
+    changed_when: false
+  - name: Outils d'extraction
+    ansible.builtin.package:
+      name: "{{ ['tar', 'gzip', 'bzip2', 'unzip', 'xz-utils' if ansible_facts.os_family == 'Debian' else 'xz'] }}"
+      state: present
+  - name: Dossier de destination
+    ansible.builtin.file:
+      path: "{{ destination }}"
+      state: directory
+      owner: "{{ proprietaire }}"
+      group: "{{ groupe }}"
+  - name: Extraction
+    ansible.builtin.unarchive:
+      src: "{{ source }}"
+      dest: "{{ destination }}"
+      remote_src: true
+      owner: "{{ proprietaire }}"
+      group: "{{ groupe }}"
+      creates: "{{ temoin | default(omit) }}"

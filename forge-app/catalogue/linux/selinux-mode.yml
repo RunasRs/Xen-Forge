@@ -1,0 +1,30 @@
+name: "SELinux : mode"
+os: linux
+description: Passe SELinux en mode enforcing, permissive ou disabled ; demande un redémarrage quand il est nécessaire (étape « Redémarrage contrôlé » à placer après)
+parameters:
+  mode:
+    label: Mode
+    help: enforcing = appliqué ; permissive = journalise sans bloquer ; disabled = désactivé (redémarrage obligatoire)
+    type: str
+    choices: [enforcing, permissive, disabled]
+    default: enforcing
+tasks:
+  - name: SELinux présent
+    ansible.builtin.stat:
+      path: /etc/selinux/config
+    register: forge_selinux_config
+  - name: Mode SELinux
+    ansible.posix.selinux:
+      state: "{{ mode }}"
+      policy: "{{ ansible_facts.selinux.type | default('targeted') if ansible_facts.selinux.type | default('') else 'targeted' }}"
+    register: forge_selinux
+    when: forge_selinux_config.stat.exists
+  - name: Redémarrage demandé
+    ansible.builtin.set_fact:
+      forge_reboot_pending: true
+    when: forge_selinux.reboot_required | default(false)
+  - name: Bilan
+    ansible.builtin.debug:
+      msg: >-
+        {{ 'SELinux absent du serveur : rien à faire' if not forge_selinux_config.stat.exists
+        else ('Mode ' ~ mode ~ (' : redémarrage nécessaire' if forge_selinux.reboot_required | default(false) else '')) }}

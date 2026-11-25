@@ -1,0 +1,49 @@
+name: Clé SSH autorisée
+os: linux
+description: Ajoute ou retire la clé publique d'une entrée du coffre-fort dans le fichier authorized_keys d'un compte
+parameters:
+  utilisateur:
+    label: Compte
+    help: Compte existant sur le serveur
+    type: str
+    required: true
+  cle:
+    label: Clé SSH
+    help: Entrée « clé SSH » du coffre-fort ; seule la clé publique est déposée
+    type: vault_entry
+    required: true
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+  exclusive:
+    label: Clé unique
+    help: Retire toutes les autres clés du compte ; à n'activer qu'en connaissance de cause (risque de perdre l'accès)
+    type: bool
+    default: false
+tasks:
+  - name: Clé publique présente dans l'entrée
+    ansible.builtin.assert:
+      that: cle.public_key is defined and cle.public_key | length > 0
+      fail_msg: "L'entrée du coffre-fort ne contient pas de clé publique"
+      quiet: true
+  - name: Compte présent
+    ansible.builtin.command: getent passwd "{{ utilisateur }}"
+    register: forge_compte_cle
+    changed_when: false
+    failed_when: false
+    check_mode: false
+  - name: Compte existant
+    ansible.builtin.assert:
+      that: forge_compte_cle.rc == 0 or etat == 'absent' or ansible_check_mode
+      fail_msg: "Compte {{ utilisateur }} introuvable : le créer avant cette étape (brique Utilisateur)"
+      quiet: true
+  - name: Clé autorisée
+    ansible.posix.authorized_key:
+      user: "{{ utilisateur }}"
+      key: "{{ cle.public_key }}"
+      state: "{{ etat }}"
+      exclusive: "{{ exclusive }}"
+      manage_dir: true
+    when: forge_compte_cle.rc == 0

@@ -1,0 +1,40 @@
+name: Limites des ressources (ulimit)
+os: linux
+description: Fixe une limite PAM (fichiers ouverts, processus, mémoire verrouillée…) pour un compte, un groupe ou tous, dans /etc/security/limits.d/90-forge.conf
+parameters:
+  domaine:
+    label: Compte ou groupe
+    help: Nom d'un compte, @nom pour un groupe, * pour tous les comptes
+    type: str
+    default: '*'
+  element:
+    label: Limite
+    type: str
+    choices: [nofile, nproc, memlock, stack, core, fsize, as, cpu]
+    default: nofile
+  type:
+    label: Type
+    help: soft = valeur par défaut ; hard = plafond ; les deux = soft et hard
+    type: str
+    choices: [soft, hard, les deux]
+    default: les deux
+  valeur:
+    label: Valeur
+    help: Nombre, ou unlimited
+    type: str
+    required: true
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - domaine is match('^(\*|@?[a-z_][a-z0-9_.-]{0,31})$')
+        - valeur is match('^([0-9]+|unlimited|infinity)$')
+      fail_msg: "Compte ou groupe : nom, @groupe ou * ; valeur : nombre ou unlimited"
+      quiet: true
+  - name: Limite PAM
+    community.general.pam_limits:
+      domain: "{{ domaine }}"
+      limit_type: "{{ '-' if type == 'les deux' else type }}"
+      limit_item: "{{ element }}"
+      value: "{{ valeur }}"
+      dest: /etc/security/limits.d/90-forge.conf

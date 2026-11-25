@@ -1,0 +1,59 @@
+name: Montage réseau (NFS)
+os: linux
+description: Monte un partage NFS de façon permanente (/etc/fstab), ou le démonte et le retire ; installe le client NFS s'il manque
+parameters:
+  source:
+    label: Partage
+    help: serveur:/chemin, ex. nas.exemple.lan:/export/data
+    type: str
+    required: true
+  point_montage:
+    label: Point de montage
+    help: Créé s'il manque
+    type: str
+    format: path_linux
+    required: true
+  options:
+    label: Options de montage
+    help: ex. defaults,_netdev ou vers=4.1,_netdev
+    type: str
+    default: defaults,_netdev
+  etat:
+    label: Action
+    help: monté = monté et gardé au démarrage ; retiré = démonté, retiré de /etc/fstab, point de montage supprimé s'il est vide
+    type: str
+    choices: [monté, retiré]
+    default: monté
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - source is match('^[A-Za-z0-9.-]+:/\S*$')
+        - options is match('^[a-z0-9=,._-]+$')
+      fail_msg: "Partage : serveur:/chemin ; options : minuscules, chiffres, « = , . _ - »"
+      quiet: true
+  - name: Listes apt présentes
+    ansible.builtin.find:
+      paths: /var/lib/apt/lists
+      patterns: '*_Packages*'
+    register: forge_listes_apt
+    when: ansible_facts.pkg_mgr == 'apt'
+  - name: Liste des paquets rafraîchie (apt)
+    ansible.builtin.apt:
+      update_cache: true
+      cache_valid_time: "{{ 3600 if forge_listes_apt.matched else 0 }}"
+    when: ansible_facts.pkg_mgr == 'apt'
+    check_mode: false
+    changed_when: false
+  - name: Client NFS
+    ansible.builtin.package:
+      name: "{{ 'nfs-common' if ansible_facts.os_family == 'Debian' else 'nfs-utils' if ansible_facts.os_family == 'RedHat' else 'nfs-client' }}"
+      state: present
+    when: etat == 'monté'
+  - name: Montage
+    ansible.posix.mount:
+      path: "{{ point_montage }}"
+      src: "{{ source }}"
+      fstype: nfs
+      opts: "{{ options }}"
+      state: "{{ 'mounted' if etat == 'monté' else 'absent' }}"

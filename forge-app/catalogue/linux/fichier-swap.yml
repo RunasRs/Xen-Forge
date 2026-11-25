@@ -1,0 +1,87 @@
+name: Fichier d'échange (swap)
+os: linux
+description: Crée un fichier d'échange de la taille voulue, l'active et l'ajoute à /etc/fstab, ou le retire
+parameters:
+  taille_mo:
+    label: Taille (Mo)
+    type: int
+    min: 64
+    max: 262144
+    default: 2048
+  chemin:
+    label: Fichier
+    type: str
+    format: path_linux
+    default: /swapfile
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+  swappiness:
+    label: Swappiness
+    help: 0 à 100 ; vide = valeur actuelle conservée. Plus elle est basse, moins le noyau utilise le swap
+    type: int
+    min: 0
+    max: 100
+tasks:
+  - name: Fichier d'échange actuel
+    ansible.builtin.stat:
+      path: "{{ chemin }}"
+    register: forge_swap
+  - name: Système de fichiers du dossier
+    ansible.builtin.command: findmnt -no FSTYPE -T "{{ chemin | dirname }}"
+    register: forge_swap_fs
+    changed_when: false
+    check_mode: false
+    when: etat == 'present'
+  - name: Fichier à recréer
+    ansible.builtin.set_fact:
+      forge_swap_recreer: "{{ etat == 'present' and (not forge_swap.stat.exists or forge_swap.stat.size != taille_mo * 1048576) }}"
+  - name: Ancien fichier désactivé
+    ansible.builtin.command: swapoff "{{ chemin }}"
+    register: forge_swapoff
+    changed_when: forge_swapoff.rc == 0
+    failed_when: false
+    when: forge_swap.stat.exists and (forge_swap_recreer or etat == 'absent')
+  - name: Ancien fichier supprimé
+    ansible.builtin.file:
+      path: "{{ chemin }}"
+      state: absent
+    when: forge_swap.stat.exists and (forge_swap_recreer or etat == 'absent')
+  - name: Fichier d'échange créé (btrfs)
+    ansible.builtin.command: btrfs filesystem mkswapfile --size "{{ taille_mo }}m" "{{ chemin }}"
+    when: forge_swap_recreer and forge_swap_fs.stdout | default('') == 'btrfs'
+  - name: Fichier d'échange créé
+    ansible.builtin.command: dd if=/dev/zero of="{{ chemin }}" bs=1M count="{{ taille_mo }}" status=none
+    when: forge_swap_recreer and forge_swap_fs.stdout | default('') != 'btrfs'
+  - name: Droits du fichier
+    ansible.builtin.file:
+      path: "{{ chemin }}"
+      owner: root
+      group: root
+      mode: '0600'
+    when: etat == 'present'
+  - name: Fichier formaté
+    ansible.builtin.command: mkswap "{{ chemin }}"
+    when: forge_swap_recreer and forge_swap_fs.stdout | default('') != 'btrfs'
+  - name: Swap actif
+    ansible.builtin.command: swapon --show=NAME --noheadings
+    register: forge_swap_actif
+    changed_when: false
+    check_mode: false
+  - name: Fichier activé
+    ansible.builtin.command: swapon "{{ chemin }}"
+    when: etat == 'present' and chemin not in forge_swap_actif.stdout_lines
+  - name: Entrée de /etc/fstab
+    ansible.builtin.lineinfile:
+      path: /etc/fstab
+      regexp: '^{{ chemin | regex_escape }}\s'
+      line: "{{ chemin }} none swap sw 0 0"
+      state: "{{ etat }}"
+  - name: Swappiness
+    ansible.posix.sysctl:
+      name: vm.swappiness
+      value: "{{ swappiness }}"
+      sysctl_file: /etc/sysctl.d/90-forge-swap.conf
+    when: etat == 'present' and swappiness is defined

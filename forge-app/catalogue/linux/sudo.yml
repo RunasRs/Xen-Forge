@@ -1,0 +1,49 @@
+name: Droits sudo
+os: linux
+description: Donne ou retire les droits sudo à un compte ou à un groupe, dans un fichier dédié de /etc/sudoers.d vérifié par visudo
+parameters:
+  beneficiaire:
+    label: Compte ou groupe
+    help: Nom d'un compte, ou %nom pour un groupe (ex. %admins)
+    type: str
+    required: true
+  sans_mot_de_passe:
+    label: Sans mot de passe
+    help: « NOPASSWD », sudo ne redemande pas le mot de passe
+    type: bool
+    default: false
+  commandes:
+    label: Commandes autorisées
+    help: Chemins complets ; ALL = toutes les commandes
+    type: list
+    default: [ALL]
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Bénéficiaire valide
+    ansible.builtin.assert:
+      that: beneficiaire is match('^%?[a-z_][a-z0-9_.-]{0,31}$')
+      fail_msg: "Compte ou groupe : nom de compte, ou %nom pour un groupe"
+      quiet: true
+  - name: Commandes valides
+    ansible.builtin.assert:
+      that: commandes | length > 0 and commandes | reject('match', '^(ALL|/[^,:=\\\\]+)$') | list | length == 0
+      fail_msg: "Commandes : ALL ou chemins complets, sans « , : = \\ »"
+      quiet: true
+  - name: Fichier sudoers
+    ansible.builtin.copy:
+      dest: "/etc/sudoers.d/forge-{{ beneficiaire | regex_replace('^%', 'groupe-') | regex_replace('[^a-z0-9_-]', '_') }}"
+      content: "{{ beneficiaire }} ALL=(ALL:ALL) {{ 'NOPASSWD: ' if sans_mot_de_passe else '' }}{{ commandes | join(', ') }}\n"
+      owner: root
+      group: root
+      mode: '0440'
+      validate: visudo -cf %s
+    when: etat == 'present'
+  - name: Fichier sudoers retiré
+    ansible.builtin.file:
+      path: "/etc/sudoers.d/forge-{{ beneficiaire | regex_replace('^%', 'groupe-') | regex_replace('[^a-z0-9_-]', '_') }}"
+      state: absent
+    when: etat == 'absent'

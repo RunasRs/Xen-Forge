@@ -1,0 +1,27 @@
+name: Journal d'événements
+os: windows
+description: Règle la taille maximale d'un journal d'événements et ce qui se passe quand il est plein
+parameters:
+  journal:
+    label: Journal
+    help: ex. Application, System, Security
+    type: str
+    default: System
+  taille_mo:
+    label: Taille maximale (Mo)
+    type: int
+    min: 1
+    max: 4095
+    default: 128
+  quand_plein:
+    label: Quand le journal est plein
+    type: str
+    choices: [écraser les anciens événements, archiver, ne rien écraser]
+    default: écraser les anciens événements
+tasks:
+  - name: Journal d'événements
+    ansible.windows.win_eventlog:
+      name: "{{ journal }}"
+      maximum_size: "{{ taille_mo }}MB"
+      overflow_action: "{{ {'écraser les anciens événements': 'OverwriteAsNeeded', 'archiver': 'OverwriteOlder', 'ne rien écraser': 'DoNotOverwrite'}[quand_plein] }}"
+      state: present

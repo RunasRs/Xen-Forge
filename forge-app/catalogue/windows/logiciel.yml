@@ -1,0 +1,48 @@
+name: Logiciel (MSI ou EXE)
+os: windows
+description: Installe ou désinstalle un logiciel à partir d'un fichier MSI ou EXE, sur le serveur ou téléchargé, sans interaction
+parameters:
+  source:
+    label: Fichier d'installation
+    help: Chemin sur le serveur, ex. C:\Install\appli.msi, ou adresse http(s) ; facultatif pour une désinstallation si l'identifiant est renseigné
+    type: str
+  identifiant:
+    label: Identifiant du produit
+    help: Code produit MSI {GUID}, ou clé de désinstallation du registre ; permet de savoir si le logiciel est déjà installé. Obligatoire pour un EXE et pour désinstaller sans fichier d'installation
+    type: str
+  arguments:
+    label: Arguments
+    help: Options d'installation silencieuse ; un MSI est déjà lancé en /quiet. ex. /S, /VERYSILENT /NORESTART
+    type: str
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+  codes_succes:
+    label: Codes de retour acceptés
+    help: 3010 = installé, redémarrage nécessaire
+    type: list
+    default: ['0', '3010']
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - source is defined or (etat == 'absent' and identifiant is defined)
+        - source is not defined or source is match('^([A-Za-z]:\\\\|\\\\\\\\|https?://)')
+        - source is not defined or source is match('(?i).*\.msi(\?.*)?$') or identifiant is defined
+        - codes_succes | reject('match', '^[0-9]+$') | list | length == 0
+      fail_msg: "Fichier : chemin Windows ou adresse http(s), facultatif pour désinstaller avec l'identifiant ; identifiant obligatoire pour un EXE ; codes : nombres"
+      quiet: true
+  - name: Logiciel
+    ansible.windows.win_package:
+      path: "{{ source | default(omit) }}"
+      product_id: "{{ identifiant | default(omit) }}"
+      arguments: "{{ arguments | default(omit) }}"
+      state: "{{ etat }}"
+      expected_return_code: "{{ codes_succes | map('int') | list }}"
+    register: forge_package
+  - name: Redémarrage demandé
+    ansible.builtin.set_fact:
+      forge_reboot_pending: true
+    when: forge_package.reboot_required | default(false)

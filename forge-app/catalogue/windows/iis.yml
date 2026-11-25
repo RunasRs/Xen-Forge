@@ -1,0 +1,50 @@
+name: Serveur web IIS
+os: windows
+description: Installe le rôle IIS (Web-Server), démarre le service W3SVC et peut remplacer la page d'accueil du site par défaut
+parameters:
+  outils_gestion:
+    label: Console de gestion IIS
+    type: bool
+    default: true
+  page_accueil:
+    label: Page d'accueil (HTML)
+    help: Laisser vide pour garder la page IIS d'origine ; sinon écrite dans C:\inetpub\wwwroot\index.html
+    type: str
+    multiline: true
+    default: ""
+  redemarrer:
+    label: Redémarrer si nécessaire
+    help: Redémarre seulement si l'installation du rôle l'exige
+    type: bool
+    default: false
+tasks:
+  - name: Rôle IIS
+    ansible.windows.win_feature:
+      name: Web-Server
+      state: present
+      include_management_tools: "{{ outils_gestion }}"
+    register: forge_iis
+  - name: Service W3SVC démarré au démarrage
+    ansible.windows.win_service:
+      name: W3SVC
+      state: started
+      start_mode: auto
+    when: not (ansible_check_mode and forge_iis is changed)
+  - name: Page d'accueil
+    ansible.windows.win_copy:
+      content: "{{ page_accueil }}"
+      dest: C:\inetpub\wwwroot\index.html
+    when: page_accueil | length > 0
+  - name: Redémarrage
+    ansible.windows.win_reboot:
+      reboot_timeout: 900
+    when: redemarrer and (forge_iis.reboot_required | default(false))
+  - name: Contrôle HTTP local
+    ansible.windows.win_shell: "(Invoke-WebRequest -UseBasicParsing -Uri http://localhost/).StatusCode"
+    register: forge_iis_http
+    changed_when: false
+    when: not ansible_check_mode
+  - name: Réponse du site par défaut
+    ansible.builtin.debug:
+      msg: "http://localhost/ : code {{ forge_iis_http.stdout | trim }}"
+    when: forge_iis_http is not skipped

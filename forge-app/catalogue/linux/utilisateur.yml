@@ -1,0 +1,71 @@
+name: Utilisateur
+os: linux
+description: Crée, modifie ou supprime un compte local, avec ses groupes, son shell et, si besoin, un mot de passe pris dans le coffre-fort
+parameters:
+  nom:
+    label: Nom du compte
+    help: Lettres minuscules, chiffres, « _ » et « - », 32 caractères au plus, commence par une lettre ou « _ »
+    type: str
+    required: true
+  etat:
+    label: Action
+    help: present = créer ou mettre à jour ; absent = supprimer le compte
+    type: str
+    choices: [present, absent]
+    default: present
+  commentaire:
+    label: Nom complet
+    help: Champ GECOS du compte
+    type: str
+  groupes:
+    label: Groupes supplémentaires
+    help: Groupes existants auxquels le compte est ajouté ; ses autres groupes sont conservés
+    type: list
+  shell:
+    label: Shell
+    type: str
+    choices: [/bin/bash, /bin/sh, /usr/sbin/nologin]
+    default: /bin/bash
+  mot_de_passe:
+    label: Mot de passe
+    help: Entrée « mot de passe » du coffre-fort ; seul son mot de passe est utilisé. Vide = mot de passe inchangé (compte créé sans mot de passe)
+    type: vault_entry
+  appliquer_mot_de_passe:
+    label: Appliquer le mot de passe
+    help: « à la création » ne le pose que si le compte vient d'être créé ; « à chaque exécution » le repose à chaque fois
+    type: str
+    choices: [à la création, à chaque exécution]
+    default: à la création
+  supprimer_dossier:
+    label: Supprimer le dossier personnel
+    help: Seulement avec l'action absent
+    type: bool
+    default: false
+tasks:
+  - name: Nom de compte valide
+    ansible.builtin.assert:
+      that: nom is match('^[a-z_][a-z0-9_-]{0,31}$')
+      fail_msg: "Nom de compte : lettres minuscules, chiffres, « _ » et « - », 32 caractères au plus"
+      quiet: true
+  - name: Compte
+    ansible.builtin.user:
+      name: "{{ nom }}"
+      state: "{{ etat }}"
+      comment: "{{ commentaire | default(omit) }}"
+      groups: "{{ groupes | default(omit) }}"
+      append: true
+      shell: "{{ shell if etat == 'present' else omit }}"
+      create_home: true
+      remove: "{{ supprimer_dossier if etat == 'absent' else omit }}"
+    register: forge_compte
+  - name: Mot de passe du compte
+    ansible.builtin.command:
+      cmd: chpasswd
+      stdin: "{{ nom }}:{{ mot_de_passe.password }}"
+    when: >-
+      etat == 'present' and mot_de_passe is defined
+      and (appliquer_mot_de_passe == 'à chaque exécution' or (forge_compte.changed and forge_compte.create_home is defined))
+    no_log: true
+  - name: Bilan
+    ansible.builtin.debug:
+      msg: "Compte {{ nom }} : {{ 'supprimé' if etat == 'absent' and forge_compte.changed else ('absent' if etat == 'absent' else ('créé ou modifié' if forge_compte.changed else 'inchangé')) }}"

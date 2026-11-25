@@ -1,0 +1,30 @@
+name: Module du noyau
+os: linux
+description: Charge ou décharge un module du noyau et, si demandé, le garde au redémarrage
+parameters:
+  nom:
+    label: Module
+    help: Nom du module, ex. br_netfilter, overlay
+    type: str
+    required: true
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+  persistant:
+    label: Garder au redémarrage
+    help: present = chargé à chaque démarrage ; absent = bloqué au démarrage
+    type: bool
+    default: true
+tasks:
+  - name: Nom valide
+    ansible.builtin.assert:
+      that: nom is match('^[A-Za-z0-9_-]+$')
+      fail_msg: "Module : lettres, chiffres, « _ » et « - »"
+      quiet: true
+  - name: Module du noyau
+    community.general.modprobe:
+      name: "{{ nom }}"
+      state: "{{ etat }}"
+      persistent: "{{ etat if persistant else 'disabled' }}"

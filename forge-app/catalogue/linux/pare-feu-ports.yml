@@ -1,0 +1,67 @@
+name: "Pare-feu : ports"
+os: linux
+description: Ouvre ou ferme des ports dans le pare-feu actif du serveur (firewalld ou ufw), de façon permanente
+parameters:
+  ports:
+    label: Ports
+    help: Port ou plage suivi du protocole, ex. 443/tcp, 53/udp, 8000-8100/tcp
+    type: list
+    required: true
+  operation:
+    label: Action
+    type: str
+    choices: [ouvrir, fermer]
+    default: ouvrir
+  zone:
+    label: Zone (firewalld)
+    help: Vide = zone par défaut de firewalld
+    type: str
+  sans_pare_feu:
+    label: Si aucun pare-feu n'est actif
+    help: « ignorer » passe l'étape avec un message ; « échouer » arrête le job
+    type: str
+    choices: [ignorer, échouer]
+    default: ignorer
+tasks:
+  - name: Ports valides
+    ansible.builtin.assert:
+      that: ports | reject('match', '^[0-9]{1,5}(-[0-9]{1,5})?/(tcp|udp)$') | list | length == 0
+      fail_msg: "Ports : numéro ou plage suivi de /tcp ou /udp, ex. 443/tcp"
+      quiet: true
+  - name: Services du serveur
+    ansible.builtin.service_facts:
+  - name: État de ufw
+    ansible.builtin.command: ufw status
+    register: forge_ufw
+    changed_when: false
+    failed_when: false
+    check_mode: false
+  - name: Pare-feu actif
+    ansible.builtin.set_fact:
+      forge_pare_feu: >-
+        {{ 'firewalld' if (ansible_facts.services['firewalld.service'] | default({})).state | default('') == 'running'
+        else ('ufw' if (forge_ufw.stdout | default('')) is search('Status: active') else '') }}
+  - name: Aucun pare-feu actif
+    ansible.builtin.fail:
+      msg: "Ni firewalld ni ufw n'est actif sur le serveur"
+    when: forge_pare_feu == '' and sans_pare_feu == 'échouer'
+  - name: Ports (firewalld)
+    ansible.posix.firewalld:
+      port: "{{ item }}"
+      zone: "{{ zone | default(omit) }}"
+      state: "{{ 'enabled' if operation == 'ouvrir' else 'disabled' }}"
+      permanent: true
+      immediate: true
+    loop: "{{ ports }}"
+    when: forge_pare_feu == 'firewalld'
+  - name: Ports (ufw)
+    community.general.ufw:
+      rule: allow
+      port: "{{ item.split('/')[0] | replace('-', ':') }}"
+      proto: "{{ item.split('/')[1] }}"
+      delete: "{{ operation == 'fermer' }}"
+    loop: "{{ ports }}"
+    when: forge_pare_feu == 'ufw'
+  - name: Bilan
+    ansible.builtin.debug:
+      msg: "{{ ('Pare-feu ' ~ forge_pare_feu ~ ' : ' ~ ports | join(', ') ~ (' ouverts' if operation == 'ouvrir' else ' fermés')) if forge_pare_feu else 'Aucun pare-feu actif : rien à faire' }}"

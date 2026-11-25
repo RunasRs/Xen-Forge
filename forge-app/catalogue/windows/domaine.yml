@@ -1,0 +1,109 @@
+name: Intégration au domaine
+os: windows
+description: Intègre le serveur à un domaine Active Directory avec un compte du coffre-fort, puis redémarre si demandé
+parameters:
+  domaine:
+    label: Domaine
+    help: Nom DNS complet du domaine Active Directory, ex. corp.exemple.lan
+    type: str
+    format: fqdn
+    required: true
+  serveurs_dns:
+    label: Serveurs DNS du domaine
+    help: Adresses IPv4 des serveurs DNS du domaine, séparées par des virgules (3 au plus) ; posées sur les cartes réseau avant l'intégration
+    type: list
+    format: ipv4
+    required: true
+  compte:
+    label: Compte d'intégration
+    help: Entrée « mot de passe » du coffre-fort, compte autorisé à joindre des ordinateurs au domaine (ex. CORP\admin ou admin@corp.exemple.lan)
+    type: vault_entry
+    required: true
+  unite_organisation:
+    label: Unité d'organisation
+    help: DN de l'OU du compte ordinateur, ex. OU=Serveurs,DC=corp,DC=exemple,DC=lan ; vide = conteneur Computers
+    type: str
+  redemarrer:
+    label: Redémarrer après l'intégration
+    help: L'intégration n'est effective qu'après un redémarrage
+    type: bool
+    default: true
+tasks:
+  - name: Compte avec mot de passe
+    ansible.builtin.assert:
+      that: compte.password is defined and compte.password | length > 0
+      fail_msg: "Compte d'intégration sans mot de passe : choisir une entrée « mot de passe » du coffre-fort"
+      quiet: true
+    no_log: true
+  - name: Nombre de serveurs DNS
+    ansible.builtin.assert:
+      that: serveurs_dns | length >= 1 and serveurs_dns | length <= 3
+      fail_msg: "Serveurs DNS du domaine : 1 à 3 adresses"
+      quiet: true
+  - name: DNS du domaine sur les cartes réseau
+    ansible.windows.win_dns_client:
+      adapter_names: "*"
+      dns_servers: "{{ serveurs_dns }}"
+  - name: Domaine actuel
+    ansible.windows.win_powershell:
+      script: |
+        $cs = Get-CimInstance -ClassName Win32_ComputerSystem
+        $Ansible.Changed = $false
+        [pscustomobject]@{ membre = [bool]$cs.PartOfDomain; domaine = [string]$cs.Domain }
+    register: forge_domaine_actuel
+    check_mode: false
+  - name: Pas membre d'un autre domaine
+    ansible.builtin.assert:
+      that: not forge_domaine_actuel.output[0].membre or forge_domaine_actuel.output[0].domaine | lower == domaine | lower
+      fail_msg: "Le serveur est déjà membre du domaine {{ forge_domaine_actuel.output[0].domaine }} : le retirer d'abord"
+      quiet: true
+  - name: Intégration au domaine
+    ansible.windows.win_powershell:
+      script: |
+        param([string]$Domaine, [string]$Utilisateur, [string]$MotDePasse, [string]$OU)
+        $ErrorActionPreference = 'Stop'
+        $secret = ConvertTo-SecureString -String $MotDePasse -AsPlainText -Force
+        $options = @{ DomainName = $Domaine; Credential = New-Object System.Management.Automation.PSCredential($Utilisateur, $secret); Force = $true }
+        if ($OU) { $options.OUPath = $OU }
+        Add-Computer @options
+        $Ansible.Changed = $true
+      parameters:
+        Domaine: "{{ domaine }}"
+        Utilisateur: "{{ compte.username }}"
+        MotDePasse: "{{ compte.password }}"
+        OU: "{{ unite_organisation | default('', true) }}"
+    register: forge_domaine_lancement
+    when: not forge_domaine_actuel.output[0].membre and not ansible_check_mode
+    async: 600
+    poll: 0
+    no_log: true
+  - name: Réseau réidentifié par Windows après l'intégration
+    ansible.builtin.pause:
+      seconds: 20
+    when: forge_domaine_lancement is not skipped
+  - name: Nouvelle connexion au serveur
+    ansible.builtin.meta: reset_connection
+  - name: Fin de l'intégration
+    ansible.builtin.async_status:
+      jid: "{{ forge_domaine_lancement.ansible_job_id }}"
+    register: forge_domaine_integration
+    until: forge_domaine_integration.finished
+    retries: 60
+    delay: 10
+    when: forge_domaine_lancement is not skipped
+    failed_when: false
+    no_log: true
+  - name: Résultat de l'intégration
+    ansible.builtin.fail:
+      msg: "Add-Computer en échec : {{ ((forge_domaine_integration.error | default([]) | map(attribute='exception.message') | list) + [forge_domaine_integration.msg | default('')]) | select | join(' ; ') }}"
+    when: forge_domaine_integration.error | default([]) | length > 0
+  - name: Redémarrage
+    ansible.windows.win_reboot:
+      reboot_timeout: 900
+    when: redemarrer and forge_domaine_integration is changed
+  - name: Bilan
+    ansible.builtin.debug:
+      msg: >-
+        {{ 'Déjà membre du domaine ' ~ domaine if forge_domaine_actuel.output[0].membre
+        else 'Vérification : le serveur serait intégré au domaine ' ~ domaine if ansible_check_mode
+        else 'Intégré au domaine ' ~ domaine ~ (' (redémarré)' if redemarrer else ' : redémarrage nécessaire pour terminer') }}

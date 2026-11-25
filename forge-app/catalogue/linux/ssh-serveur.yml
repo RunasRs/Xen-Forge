@@ -1,0 +1,57 @@
+name: "Serveur SSH : sécurité"
+os: linux
+description: Règle la connexion de root et l'authentification par mot de passe du serveur SSH, dans un fichier prioritaire de /etc/ssh/sshd_config.d, vérifié avant rechargement
+parameters:
+  connexion_root:
+    label: Connexion de root
+    help: « clé seulement » = root ne peut se connecter qu'avec une clé SSH
+    type: str
+    choices: [non, clé seulement, oui]
+    default: non
+  mot_de_passe:
+    label: Authentification par mot de passe
+    help: Non = clés SSH seulement. Refusé si Forge se connecte elle-même à ce serveur avec un mot de passe
+    type: bool
+    default: false
+  tentatives:
+    label: Tentatives par connexion
+    type: int
+    min: 1
+    max: 10
+    default: 3
+tasks:
+  - name: Forge garde son accès
+    ansible.builtin.assert:
+      that: mot_de_passe or ansible_password is not defined
+      fail_msg: "Forge se connecte à ce serveur avec un mot de passe : passer la cible sur une clé SSH avant d'interdire les mots de passe"
+      quiet: true
+  - name: Dossier sshd_config.d inclus
+    ansible.builtin.lineinfile:
+      path: /etc/ssh/sshd_config
+      line: Include /etc/ssh/sshd_config.d/*.conf
+      insertbefore: BOF
+      validate: sshd -t -f %s
+  - name: Dossier sshd_config.d
+    ansible.builtin.file:
+      path: /etc/ssh/sshd_config.d
+      state: directory
+      mode: '0755'
+  - name: Réglages de sécurité
+    ansible.builtin.copy:
+      dest: /etc/ssh/sshd_config.d/00-forge.conf
+      mode: '0600'
+      content: |
+        PermitRootLogin {{ {'non': 'no', 'clé seulement': 'prohibit-password', 'oui': 'yes'}[connexion_root] }}
+        PasswordAuthentication {{ 'yes' if mot_de_passe else 'no' }}
+        KbdInteractiveAuthentication {{ 'yes' if mot_de_passe else 'no' }}
+        MaxAuthTries {{ tentatives }}
+    register: forge_sshd_conf
+  - name: Configuration valide
+    ansible.builtin.command: sshd -t
+    changed_when: false
+    check_mode: false
+  - name: Service SSH rechargé
+    ansible.builtin.systemd_service:
+      name: "{{ 'ssh' if ansible_facts.os_family == 'Debian' else 'sshd' }}"
+      state: reloaded
+    when: forge_sshd_conf.changed

@@ -1,0 +1,38 @@
+name: Étendre une partition
+os: windows
+description: Étend la partition d'un lecteur à tout l'espace libre qui la suit sur son disque (après agrandissement du disque de la VM)
+parameters:
+  lettre:
+    label: Lecteur
+    help: Lettre de la partition à étendre ; l'espace libre doit se trouver juste après elle sur le disque
+    type: str
+    required: true
+    choices: [C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z]
+    default: C
+tasks:
+  - name: Extension de la partition
+    ansible.windows.win_powershell:
+      script: |
+        [CmdletBinding(SupportsShouldProcess)]
+        param([string]$Lettre)
+        $ErrorActionPreference = 'Stop'
+        Update-HostStorageCache
+        $partition = Get-Partition -DriveLetter $Lettre -ErrorAction SilentlyContinue
+        if (-not $partition) { throw "Lecteur ${Lettre}: introuvable" }
+        $avant = $partition.Size
+        $maximum = (Get-PartitionSupportedSize -DriveLetter $Lettre).SizeMax
+        $Ansible.Changed = ($maximum - $avant) -ge 1MB
+        if ($Ansible.Changed -and -not $Ansible.CheckMode) { Resize-Partition -DriveLetter $Lettre -Size $maximum }
+        $apres = if ($Ansible.CheckMode) { $maximum } else { (Get-Partition -DriveLetter $Lettre).Size }
+        if ($Ansible.Changed) {
+          'Lecteur {0}: {1:N1} Go -> {2:N1} Go (+{3:N1} Go)' -f $Lettre, ($avant / 1GB), ($apres / 1GB), (($apres - $avant) / 1GB)
+        } else {
+          'Lecteur {0}: {1:N1} Go, aucun espace libre juste après la partition (disque non agrandi, ou autre partition à la suite)' -f $Lettre, ($avant / 1GB)
+        }
+      parameters:
+        Lettre: "{{ lettre }}"
+    register: forge_extension
+    check_mode: false
+  - name: Bilan
+    ansible.builtin.debug:
+      var: forge_extension.output

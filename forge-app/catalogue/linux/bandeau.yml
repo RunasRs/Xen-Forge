@@ -1,0 +1,28 @@
+name: Message de connexion
+os: linux
+description: Affiche un texte aux utilisateurs, après la connexion (/etc/motd), avant la connexion (/etc/issue et /etc/issue.net), ou les deux
+parameters:
+  texte:
+    label: Message
+    type: str
+    multiline: true
+    required: true
+  moment:
+    label: Affiché
+    type: str
+    choices: [après la connexion, avant la connexion, les deux]
+    default: après la connexion
+tasks:
+  - name: Message après la connexion
+    ansible.builtin.copy:
+      dest: /etc/motd
+      content: "{{ texte | regex_replace('\\n*$', '') }}\n"
+      mode: '0644'
+    when: moment != 'avant la connexion'
+  - name: Message avant la connexion
+    ansible.builtin.copy:
+      dest: "{{ item }}"
+      content: "{{ texte | regex_replace('\\n*$', '') }}\n"
+      mode: '0644'
+    loop: [/etc/issue, /etc/issue.net]
+    when: moment != 'après la connexion'

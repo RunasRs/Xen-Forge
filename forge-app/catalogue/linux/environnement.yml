@@ -1,0 +1,33 @@
+name: Variable d'environnement
+os: linux
+description: Définit ou retire une variable d'environnement pour tous les comptes, dans /etc/environment (prise en compte à la connexion suivante)
+parameters:
+  nom:
+    label: Variable
+    help: Majuscules, chiffres et « _ », ex. HTTP_PROXY
+    type: str
+    required: true
+  valeur:
+    label: Valeur
+    type: str
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - nom is match('^[A-Za-z_][A-Za-z0-9_]*$')
+        - etat == 'absent' or (valeur is defined and '"' not in valeur)
+      fail_msg: "Variable : lettres, chiffres et « _ » ; valeur obligatoire, sans guillemet"
+      quiet: true
+  - name: Variable dans /etc/environment
+    ansible.builtin.lineinfile:
+      path: /etc/environment
+      regexp: '^{{ nom }}='
+      line: '{{ nom }}="{{ valeur | default("") }}"'
+      state: "{{ etat }}"
+      create: true
+      mode: '0644'

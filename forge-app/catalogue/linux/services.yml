@@ -1,0 +1,47 @@
+name: Paquets service
+os: linux
+description: Installe le paquet d'un service s'il manque, puis le démarre ou l'arrête et l'active ou non au démarrage
+parameters:
+  nom:
+    label: Paquet et service
+    help: Nom du paquet installé et du service géré, ex. nginx, chrony, cron
+    type: str
+    required: true
+  demarre:
+    label: Service démarré
+    help: Non = service arrêté
+    type: bool
+    default: true
+  au_demarrage:
+    label: Lancé au démarrage
+    type: bool
+    default: true
+tasks:
+  - name: Nom valide
+    ansible.builtin.assert:
+      that: nom is match('^[A-Za-z0-9][A-Za-z0-9.+_@-]*$')
+      fail_msg: "Paquet et service : lettres, chiffres et « . + _ @ - », sans espace"
+      quiet: true
+  - name: Listes apt présentes
+    ansible.builtin.find:
+      paths: /var/lib/apt/lists
+      patterns: '*_Packages*'
+    register: forge_listes_apt
+    when: ansible_facts.pkg_mgr == 'apt'
+  - name: Liste des paquets rafraîchie (apt)
+    ansible.builtin.apt:
+      update_cache: true
+      cache_valid_time: "{{ 3600 if forge_listes_apt.matched else 0 }}"
+    when: ansible_facts.pkg_mgr == 'apt'
+    check_mode: false
+    changed_when: false
+  - name: Installation de {{ nom }}
+    ansible.builtin.package:
+      name: "{{ nom }}"
+      state: present
+  - name: Service {{ nom }}
+    ansible.builtin.service:
+      name: "{{ nom }}"
+      state: "{{ 'started' if demarre else 'stopped' }}"
+      enabled: "{{ au_demarrage }}"
+    ignore_errors: "{{ ansible_check_mode }}"

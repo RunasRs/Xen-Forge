@@ -1,0 +1,129 @@
+name: forge
+
+services:
+  db:
+    image: postgres:${POSTGRES_VERSION:?}
+    container_name: forge-db
+    hostname: forge-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  app:
+    build:
+      context: ./forge-app
+      additional_contexts:
+        base-packer: docker-image://hashicorp/packer:${PACKER_VERSION:?}
+        base-alpine: docker-image://alpine:${ALPINE_VERSION:?}
+        base-node: docker-image://node:${NODE_VERSION:?}-alpine${ALPINE_VERSION:?}
+      args:
+        TOFU_VERSION: ${TOFU_VERSION:?}
+        TOFU_SHA256: ${TOFU_SHA256:?}
+        XO_PROVIDER_VERSION: ${XO_PROVIDER_VERSION:?}
+        XO_PROVIDER_SHA256: ${XO_PROVIDER_SHA256:?}
+        XEN_GUEST_AGENT_DEB_URL: ${XEN_GUEST_AGENT_DEB_URL:?}
+        XEN_GUEST_AGENT_DEB_SHA256: ${XEN_GUEST_AGENT_DEB_SHA256:?}
+        XEN_GUEST_AGENT_RPM_URL: ${XEN_GUEST_AGENT_RPM_URL:?}
+        XEN_GUEST_AGENT_RPM_SHA256: ${XEN_GUEST_AGENT_RPM_SHA256:?}
+        CLOUDBASE_INIT_VERSION: ${CLOUDBASE_INIT_VERSION:?}
+        CLOUDBASE_INIT_SHA256: ${CLOUDBASE_INIT_SHA256:?}
+    container_name: forge-app
+    hostname: forge-app
+    restart: unless-stopped
+    mem_limit: 2g
+    depends_on:
+      db:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:exec,mode=1777
+      - /data/work:exec,nosuid,nodev,size=512m,mode=0700,uid=1000,gid=1000
+    ports:
+      - "${APP_HTTPS_PORT:-443}:443"
+      - "${BUILD_HTTP_PORT:-8080}:8080"
+    sysctls:
+      - net.ipv4.ip_unprivileged_port_start=0
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      APP_NAME: ${APP_NAME:?}
+      APP_HTTPS_PORT: ${APP_HTTPS_PORT:-443}
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      APP_SECRET_KEY: ${APP_SECRET_KEY}
+      PACKER_PLUGIN_PATH: /data/plugins
+      BUILD_HTTP_PORT: ${BUILD_HTTP_PORT:-8080}
+      ANSIBLE_CATALOGUE_DIR: /catalogue
+    dns:
+      - ${DNS1}
+      - ${DNS2}
+    volumes:
+      - ./packer:/packer:ro
+      - ./ssl:/ssl:ro
+      - data:/data
+      - jobs-packer:/data/jobs-packer
+      - jobs-tofu:/data/jobs-tofu
+      - jobs-ansible:/data/jobs-ansible
+      - ansible-work:/data/ansible-work
+      - ./forge-ansible/catalogue:/catalogue
+
+  ansible:
+    build:
+      context: ./forge-ansible
+      additional_contexts:
+        base-python: docker-image://python:${PYTHON_VERSION:?}-alpine${ALPINE_VERSION:?}
+      args:
+        ANSIBLE_CORE_VERSION: ${ANSIBLE_CORE_VERSION:?}
+        ANSIBLE_RUNNER_VERSION: ${ANSIBLE_RUNNER_VERSION:?}
+        PYWINRM_VERSION: ${PYWINRM_VERSION:?}
+        ANSIBLE_POSIX_VERSION: ${ANSIBLE_POSIX_VERSION:?}
+        COMMUNITY_GENERAL_VERSION: ${COMMUNITY_GENERAL_VERSION:?}
+        ANSIBLE_WINDOWS_VERSION: ${ANSIBLE_WINDOWS_VERSION:?}
+        COMMUNITY_WINDOWS_VERSION: ${COMMUNITY_WINDOWS_VERSION:?}
+        MICROSOFT_AD_VERSION: ${MICROSOFT_AD_VERSION:?}
+        COMMUNITY_CRYPTO_VERSION: ${COMMUNITY_CRYPTO_VERSION:?}
+    container_name: forge-ansible
+    hostname: forge-ansible
+    restart: unless-stopped
+    mem_limit: 1g
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - ansible
+    dns:
+      - ${DNS1}
+      - ${DNS2}
+    volumes:
+      - ansible-work:/data/ansible-work
+
+networks:
+  default:
+  ansible:
+
+volumes:
+  pgdata:
+  data:
+  jobs-packer:
+  jobs-tofu:
+  jobs-ansible:
+  ansible-work:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=256m,uid=1000,gid=1000,mode=0700,noexec,nosuid,nodev

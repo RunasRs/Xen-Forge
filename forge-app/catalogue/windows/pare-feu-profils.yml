@@ -1,0 +1,18 @@
+name: "Pare-feu : profils"
+os: windows
+description: Active ou désactive le pare-feu Windows pour les profils domaine, privé et public
+parameters:
+  profils:
+    label: Profils
+    type: list
+    choices: [Domain, Private, Public]
+    default: [Domain, Private, Public]
+  actif:
+    label: Pare-feu actif
+    type: bool
+    default: true
+tasks:
+  - name: Profils du pare-feu
+    ansible.windows.win_firewall:
+      profiles: "{{ profils }}"
+      state: "{{ 'enabled' if actif else 'disabled' }}"

@@ -1,0 +1,68 @@
+name: Tâche planifiée
+os: windows
+description: Crée, modifie ou supprime une tâche du Planificateur de tâches, lancée chaque jour, chaque semaine ou au démarrage du serveur
+parameters:
+  nom:
+    label: Nom de la tâche
+    type: str
+    required: true
+  dossier:
+    label: Dossier du planificateur
+    type: str
+    default: \Forge
+  programme:
+    label: Programme
+    help: ex. C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+    type: str
+  arguments:
+    label: Arguments
+    help: ex. -NoProfile -File C:\Scripts\sauvegarde.ps1
+    type: str
+  declencheur:
+    label: Déclenchement
+    type: str
+    choices: [chaque jour, chaque semaine, au démarrage]
+    default: chaque jour
+  heure:
+    label: Heure
+    help: HH:MM, pour chaque jour et chaque semaine
+    type: str
+    default: '02:00'
+  jours:
+    label: Jours (chaque semaine)
+    type: list
+    choices: [monday, tuesday, wednesday, thursday, friday, saturday, sunday]
+    default: [sunday]
+  compte:
+    label: Compte d'exécution
+    help: SYSTEM, ou compte de service sans mot de passe enregistré
+    type: str
+    default: SYSTEM
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - etat == 'absent' or programme is defined
+        - heure is match('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        - dossier is match('^\\\\')
+      fail_msg: "Programme obligatoire ; heure : HH:MM ; dossier : commence par \\"
+      quiet: true
+  - name: Tâche planifiée
+    community.windows.win_scheduled_task:
+      name: "{{ nom }}"
+      path: "{{ dossier }}"
+      actions: "{{ [{'path': programme, 'arguments': arguments | default(omit)}] if etat == 'present' else omit }}"
+      triggers: >-
+        {{ omit if etat == 'absent' else
+        ([{'type': 'boot'}] if declencheur == 'au démarrage'
+        else [{'type': 'daily' if declencheur == 'chaque jour' else 'weekly', 'start_boundary': '2026-01-01T' ~ heure ~ ':00',
+        'days_of_week': (jours | join(',')) if declencheur == 'chaque semaine' else omit}]) }}
+      username: "{{ compte }}"
+      run_level: highest
+      enabled: true
+      state: "{{ etat }}"

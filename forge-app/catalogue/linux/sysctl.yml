@@ -1,0 +1,29 @@
+name: Paramètres du noyau (sysctl)
+os: linux
+description: Applique des paramètres du noyau et les garde au redémarrage, dans /etc/sysctl.d/90-forge.conf
+parameters:
+  parametres:
+    label: Paramètres
+    help: Une entrée par paramètre au format clé=valeur, ex. net.ipv4.ip_forward=1, vm.swappiness=10
+    type: list
+    required: true
+  etat:
+    label: Action
+    help: absent = retire les paramètres du fichier ; leur valeur actuelle reste en place jusqu'au redémarrage
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Paramètres valides
+    ansible.builtin.assert:
+      that: parametres | reject('match', '^[a-z0-9_.\-/]+=[^=]*$') | list | length == 0
+      fail_msg: "Paramètres : clé=valeur, ex. net.ipv4.ip_forward=1"
+      quiet: true
+  - name: Paramètres du noyau
+    ansible.posix.sysctl:
+      name: "{{ item.split('=', 1)[0] }}"
+      value: "{{ item.split('=', 1)[1] }}"
+      state: "{{ etat }}"
+      sysctl_file: /etc/sysctl.d/90-forge.conf
+      reload: true
+    loop: "{{ parametres }}"

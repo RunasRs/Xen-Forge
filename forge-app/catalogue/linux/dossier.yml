@@ -1,0 +1,43 @@
+name: Dossier
+os: linux
+description: Crée un dossier avec son propriétaire et ses droits (dossiers parents compris), ou le supprime avec son contenu
+parameters:
+  chemin:
+    label: Dossier
+    type: str
+    format: path_linux
+    required: true
+  proprietaire:
+    label: Propriétaire
+    type: str
+    default: root
+  groupe:
+    label: Groupe
+    type: str
+    default: root
+  mode:
+    label: Droits
+    help: Notation octale, ex. 0755, 0750, 0700
+    type: str
+    default: '0755'
+  etat:
+    label: Action
+    help: absent supprime le dossier et tout son contenu
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - mode is match('^0?[0-7]{3,4}$')
+        - chemin not in ['/', '/etc', '/usr', '/var', '/home', '/root', '/boot', '/bin', '/sbin', '/lib', '/lib64', '/opt', '/srv', '/tmp']
+      fail_msg: "Droits : notation octale ; dossier système refusé"
+      quiet: true
+  - name: Dossier
+    ansible.builtin.file:
+      path: "{{ chemin }}"
+      state: "{{ 'directory' if etat == 'present' else 'absent' }}"
+      owner: "{{ proprietaire if etat == 'present' else omit }}"
+      group: "{{ groupe if etat == 'present' else omit }}"
+      mode: "{{ mode if etat == 'present' else omit }}"

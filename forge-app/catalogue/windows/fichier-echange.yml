@@ -1,0 +1,60 @@
+name: Fichier d'échange
+os: windows
+description: Règle le fichier d'échange (pagefile), géré par Windows ou de taille fixe sur un lecteur ; demande un redémarrage quand il change
+parameters:
+  automatique:
+    label: Géré par Windows
+    type: bool
+    default: false
+  lecteur:
+    label: Lecteur
+    type: str
+    default: C
+  taille_initiale:
+    label: Taille initiale (Mo)
+    type: int
+    min: 16
+    max: 1048576
+    default: 4096
+  taille_max:
+    label: Taille maximale (Mo)
+    type: int
+    min: 16
+    max: 1048576
+    default: 4096
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - lecteur is match('^[A-Za-z]$')
+        - taille_max >= taille_initiale
+      fail_msg: "Lecteur : une lettre ; taille maximale supérieure ou égale à la taille initiale"
+      quiet: true
+  - name: Fichier d'échange actuel
+    community.windows.win_pagefile:
+      state: query
+    register: forge_pagefile_actuel
+  - name: Écart avec la configuration voulue
+    ansible.builtin.set_fact:
+      forge_pagefile_ecart: >-
+        {{ (forge_pagefile_actuel.automatic_managed_pagefiles | bool) != automatique
+        or (not automatique and (forge_pagefile_actuel.pagefiles | length != 1
+        or (forge_pagefile_actuel.pagefiles[0].name[0] | upper) != (lecteur | upper)
+        or not (forge_pagefile_actuel.pagefiles[0].name | upper) is search('PAGEFILE.SYS$')
+        or (forge_pagefile_actuel.pagefiles[0].initial_size | int) != taille_initiale
+        or (forge_pagefile_actuel.pagefiles[0].maximum_size | int) != taille_max)) }}
+  - name: Fichier d'échange
+    community.windows.win_pagefile:
+      automatic: "{{ automatique }}"
+      drive: "{{ lecteur | upper if not automatique else omit }}"
+      initial_size: "{{ taille_initiale if not automatique else omit }}"
+      maximum_size: "{{ taille_max if not automatique else omit }}"
+      remove_all: "{{ true if not automatique else omit }}"
+      override: "{{ true if not automatique else omit }}"
+      state: "{{ 'query' if automatique else 'present' }}"
+    register: forge_pagefile
+    when: forge_pagefile_ecart | bool
+  - name: Redémarrage demandé
+    ansible.builtin.set_fact:
+      forge_reboot_pending: true
+    when: forge_pagefile.changed

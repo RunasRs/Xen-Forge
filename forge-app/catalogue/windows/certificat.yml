@@ -1,0 +1,47 @@
+name: Certificat serveur
+os: windows
+description: Importe un certificat avec sa clé privée (menu Certificats) dans le magasin Personnel de l'ordinateur, avec ses autorités intermédiaires, pour IIS, RDP ou une application
+parameters:
+  certificat:
+    label: Certificat
+    help: Certificat + clé privée ou PKCS12 du menu Certificats
+    type: certificate_entry
+    cert_types: [cert_key, pkcs12]
+    required: true
+  nom_convivial:
+    label: Nom convivial
+    help: Nom affiché dans le magasin, ex. Intranet 2027 ; vide = nom du certificat dans Forge
+    type: str
+tasks:
+  - name: Certificat importé
+    ansible.windows.win_powershell:
+      parameters:
+        Pfx: "{{ certificat.pfx }}"
+        MotDePasse: "{{ certificat.pfx_password }}"
+        Empreinte: "{{ certificat.thumbprint }}"
+        Nom: "{{ nom_convivial | default(certificat.name) }}"
+      script: |
+        [CmdletBinding(SupportsShouldProcess)]
+        param([string]$Pfx, [string]$MotDePasse, [string]$Empreinte, [string]$Nom)
+        $ErrorActionPreference = 'Stop'
+        $changed = $false
+        $drapeaux = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]'MachineKeySet, PersistKeySet'
+        $lot = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection
+        $lot.Import([Convert]::FromBase64String($Pfx), $MotDePasse, $drapeaux)
+        foreach ($c in $lot) {
+            if ($c.Thumbprint -eq $Empreinte) { $magasin = 'My'; $c.FriendlyName = $Nom }
+            elseif ($c.Subject -ne $c.Issuer) { $magasin = 'CA' }
+            else { continue }
+            if (Test-Path "Cert:\LocalMachine\$magasin\$($c.Thumbprint)") { continue }
+            if ($Ansible.CheckMode) { $changed = $true; continue }
+            $store = New-Object System.Security.Cryptography.X509Certificates.X509Store($magasin, 'LocalMachine')
+            $store.Open('ReadWrite')
+            try { $store.Add($c) } finally { $store.Close() }
+            $changed = $true
+        }
+        if (-not $Ansible.CheckMode -and -not (Get-Item "Cert:\LocalMachine\My\$Empreinte").HasPrivateKey) { throw "Certificat $Empreinte importé sans clé privée" }
+        $Ansible.Changed = $changed
+    no_log: true
+  - name: Bilan
+    ansible.builtin.debug:
+      msg: "Cert:\\LocalMachine\\My\\{{ certificat.thumbprint }} ({{ certificat.subject }}, valable jusqu'au {{ certificat.not_after }})"

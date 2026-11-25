@@ -1,0 +1,79 @@
+name: Nouveau disque
+os: windows
+description: Prépare un disque vide ajouté à la VM (initialisation GPT, partition sur tout le disque, formatage NTFS ou ReFS, lettre de lecteur). Refuse un disque qui contient déjà des partitions
+parameters:
+  numero:
+    label: Numéro du disque
+    help: Numéro dans Get-Disk ou la Gestion des disques, ex. 1 pour le deuxième disque
+    type: int
+    min: 1
+    max: 63
+    required: true
+  lettre:
+    label: Lettre de lecteur
+    type: str
+    default: D
+  systeme_fichiers:
+    label: Système de fichiers
+    type: str
+    choices: [ntfs, refs]
+    default: ntfs
+  nom_volume:
+    label: Nom du volume
+    type: str
+    default: Donnees
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - lettre is match('^[D-Zd-z]$')
+        - nom_volume is match('^[A-Za-z0-9 _-]{1,32}$')
+      fail_msg: "Lettre : D à Z ; nom du volume : 32 caractères au plus, lettres, chiffres, espace, « _ - »"
+      quiet: true
+  - name: État du disque
+    ansible.windows.win_powershell:
+      parameters:
+        Numero: "{{ numero }}"
+        Lettre: "{{ lettre | upper }}"
+      script: |
+        param([int]$Numero, [string]$Lettre)
+        $ErrorActionPreference = 'Stop'
+        $d = Get-Disk -Number $Numero
+        $parts = @(Get-Partition -DiskNumber $Numero -ErrorAction SilentlyContinue | Where-Object Type -ne 'Reserved')
+        $Ansible.Changed = $false
+        [pscustomobject]@{
+          style = [string]$d.PartitionStyle
+          partitions = $parts.Count
+          lettre_ok = [bool]($parts | Where-Object DriveLetter -eq $Lettre)
+          taille_go = [math]::Round($d.Size / 1GB)
+        }
+    register: forge_disque
+    check_mode: false
+  - name: Disque libre ou déjà préparé par cette brique
+    ansible.builtin.assert:
+      that: >-
+        forge_disque.output[0].style == 'RAW'
+        or (forge_disque.output[0].partitions == 0)
+        or (forge_disque.output[0].partitions == 1 and forge_disque.output[0].lettre_ok)
+      fail_msg: "Le disque {{ numero }} contient déjà des partitions : rien n'est modifié"
+      quiet: true
+  - name: Disque initialisé
+    community.windows.win_initialize_disk:
+      disk_number: "{{ numero }}"
+      style: gpt
+    when: forge_disque.output[0].style == 'RAW'
+  - name: Partition
+    community.windows.win_partition:
+      disk_number: "{{ numero }}"
+      drive_letter: "{{ lettre | upper }}"
+      partition_size: -1
+      state: present
+  - name: Formatage
+    community.windows.win_format:
+      drive_letter: "{{ lettre | upper }}"
+      file_system: "{{ systeme_fichiers }}"
+      new_label: "{{ nom_volume }}"
+    when: not forge_disque.output[0].lettre_ok
+  - name: Bilan
+    ansible.builtin.debug:
+      msg: "Disque {{ numero }} ({{ forge_disque.output[0].taille_go }} Go) : lecteur {{ lettre | upper }}:"

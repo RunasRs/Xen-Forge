@@ -1,0 +1,53 @@
+name: Droits sur un dossier (ACL)
+os: windows
+description: Donne ou retire un droit NTFS à un compte ou groupe sur un dossier ou un fichier, transmis par défaut aux sous-dossiers et fichiers
+parameters:
+  chemin:
+    label: Dossier ou fichier
+    type: str
+    format: path_windows
+    required: true
+  beneficiaire:
+    label: Compte ou groupe
+    help: ex. CORP\Equipe-Web, IIS_IUSRS, Everyone
+    type: str
+    required: true
+  droits:
+    label: Droits
+    type: str
+    choices: [FullControl, Modify, ReadAndExecute, Read, Write]
+    default: ReadAndExecute
+  autoriser:
+    label: Autoriser
+    help: Non = refuser ce droit
+    type: bool
+    default: true
+  heritage:
+    label: Transmis aux sous-dossiers et fichiers
+    type: bool
+    default: true
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Chemin
+    ansible.windows.win_stat:
+      path: "{{ chemin }}"
+    register: forge_acl_chemin
+  - name: Chemin existant
+    ansible.builtin.assert:
+      that: forge_acl_chemin.stat.exists or etat == 'absent'
+      fail_msg: "{{ chemin }} introuvable : le créer avant cette étape (brique Dossier)"
+      quiet: true
+  - name: Droit NTFS
+    ansible.windows.win_acl:
+      path: "{{ chemin }}"
+      user: "{{ beneficiaire }}"
+      rights: "{{ droits }}"
+      type: "{{ 'allow' if autoriser else 'deny' }}"
+      inherit: "{{ 'ContainerInherit, ObjectInherit' if heritage else 'None' }}"
+      propagation: None
+      state: "{{ etat }}"
+    when: forge_acl_chemin.stat.exists

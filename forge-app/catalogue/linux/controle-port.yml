@@ -1,0 +1,39 @@
+name: Contrôle d'un port
+os: linux
+description: Attend qu'un port TCP accepte les connexions (ou soit fermé), vu depuis le serveur ; l'étape échoue après le délai
+parameters:
+  numero_port:
+    label: Port
+    type: int
+    min: 1
+    max: 65535
+    required: true
+  hote:
+    label: Adresse
+    help: Adresse vue depuis le serveur ; 127.0.0.1 = le serveur lui-même
+    type: str
+    default: 127.0.0.1
+  attendu:
+    label: État attendu
+    type: str
+    choices: [ouvert, fermé]
+    default: ouvert
+  delai:
+    label: Délai maximal (secondes)
+    type: int
+    min: 1
+    max: 900
+    default: 60
+tasks:
+  - name: Adresse valide
+    ansible.builtin.assert:
+      that: hote is match('^[A-Za-z0-9.:-]+$')
+      fail_msg: "Adresse : nom DNS ou adresse IP"
+      quiet: true
+  - name: Port
+    ansible.builtin.wait_for:
+      host: "{{ hote }}"
+      port: "{{ numero_port }}"
+      state: "{{ 'started' if attendu == 'ouvert' else 'stopped' }}"
+      timeout: "{{ delai }}"
+    check_mode: false

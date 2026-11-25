@@ -1,0 +1,93 @@
+name: Certificat TLS (autosigné)
+os: linux
+description: Génère une clé privée et un certificat autosigné aux chemins indiqués, pour les services (nginx, Apache, Postfix…)
+parameters:
+  chemin_certificat:
+    label: Fichier du certificat
+    help: ex. /etc/forge/tls/intranet.crt ; dossier créé s'il manque
+    type: str
+    format: path_linux
+    required: true
+  chemin_cle:
+    label: Fichier de la clé privée
+    help: ex. /etc/forge/tls/intranet.key ; lisible par root seulement
+    type: str
+    format: path_linux
+    required: true
+  noms_dns:
+    label: Noms DNS
+    help: Le premier devient le nom commun du certificat ; vide = nom d'hôte du serveur
+    type: list
+  duree_jours:
+    label: Validité (jours)
+    type: int
+    min: 1
+    max: 3650
+    default: 825
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - chemin_certificat is match('^/.*[^/]$')
+        - chemin_cle is match('^/.*[^/]$')
+        - chemin_certificat != chemin_cle
+        - (noms_dns | default([])) | reject('match', '^(\*\.)?[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$') | list | length == 0
+      fail_msg: "Chemins : fichiers distincts, sans « / » final ; noms DNS : lettres, chiffres, « . - », « *. » en tête"
+      quiet: true
+  - name: Dossiers des fichiers
+    ansible.builtin.file:
+      path: "{{ item }}"
+      state: directory
+    loop: "{{ [chemin_certificat | dirname, chemin_cle | dirname] | unique }}"
+  - name: Listes apt présentes
+    ansible.builtin.find:
+      paths: /var/lib/apt/lists
+      patterns: '*_Packages*'
+    register: forge_listes_apt
+    when: ansible_facts.pkg_mgr == 'apt'
+  - name: Liste des paquets rafraîchie (apt)
+    ansible.builtin.apt:
+      update_cache: true
+      cache_valid_time: "{{ 3600 if forge_listes_apt.matched else 0 }}"
+    when: ansible_facts.pkg_mgr == 'apt'
+    check_mode: false
+    changed_when: false
+  - name: Bibliothèque cryptography
+    ansible.builtin.package:
+      name: python3-cryptography
+      state: present
+  - name: Clé privée
+    community.crypto.openssl_privatekey:
+      path: "{{ chemin_cle }}"
+      type: RSA
+      size: 3072
+      owner: root
+      group: root
+      mode: '0600'
+  - name: Noms du certificat
+    ansible.builtin.set_fact:
+      forge_tls_noms: "{{ (noms_dns | default([])) or [ansible_facts.fqdn | default(ansible_facts.hostname)] }}"
+  - name: Demande de certificat
+    community.crypto.openssl_csr_pipe:
+      privatekey_path: "{{ chemin_cle }}"
+      common_name: "{{ forge_tls_noms[0] }}"
+      subject_alt_name: "{{ forge_tls_noms | map('regex_replace', '^', 'DNS:') | list }}"
+    register: forge_tls_csr
+    changed_when: false
+  - name: Certificat autosigné
+    community.crypto.x509_certificate:
+      path: "{{ chemin_certificat }}"
+      csr_content: "{{ forge_tls_csr.csr }}"
+      privatekey_path: "{{ chemin_cle }}"
+      provider: selfsigned
+      selfsigned_not_after: "+{{ duree_jours }}d"
+      owner: root
+      group: root
+      mode: '0644'
+  - name: Certificat en place
+    community.crypto.x509_certificate_info:
+      path: "{{ chemin_certificat }}"
+    register: forge_tls_info
+  - name: Bilan
+    ansible.builtin.debug:
+      msg: "{{ chemin_certificat }} : {{ forge_tls_info.subject.commonName | default('') }}, valable jusqu'au {{ (forge_tls_info.not_after | to_datetime('%Y%m%d%H%M%SZ')).strftime('%d/%m/%Y') }}"

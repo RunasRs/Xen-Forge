@@ -1,0 +1,87 @@
+name: Rotation de journaux (logrotate)
+os: linux
+description: Fait tourner des fichiers journaux d'application (fréquence, nombre d'archives, compression), dans un fichier dédié de /etc/logrotate.d
+parameters:
+  nom:
+    label: Nom
+    help: Nom du fichier de configuration, ex. mon-appli
+    type: str
+    required: true
+  fichiers:
+    label: Fichiers journaux
+    help: Chemins complets, jokers acceptés, ex. /var/log/mon-appli/*.log
+    type: list
+    required: true
+  frequence:
+    label: Fréquence
+    type: str
+    choices: [daily, weekly, monthly]
+    default: weekly
+  conserver:
+    label: Archives conservées
+    type: int
+    min: 1
+    max: 365
+    default: 4
+  compresser:
+    label: Compresser les archives
+    type: bool
+    default: true
+  taille_min:
+    label: Taille minimale
+    help: Ne fait tourner un fichier qu'au-delà de cette taille, ex. 100M ; vide = à chaque échéance
+    type: str
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - nom is match('^[a-z0-9][a-z0-9_.-]{0,62}$')
+        - fichiers | reject('match', '^/[^\s{}]+$') | list | length == 0
+        - taille_min is not defined or taille_min is match('^[0-9]+[kMG]?$')
+      fail_msg: "Nom : minuscules, chiffres, « _ . - » ; fichiers : chemins absolus sans espace ; taille : nombre suivi de k, M ou G"
+      quiet: true
+  - name: Listes apt présentes
+    ansible.builtin.find:
+      paths: /var/lib/apt/lists
+      patterns: '*_Packages*'
+    register: forge_listes_apt
+    when: ansible_facts.pkg_mgr == 'apt'
+  - name: Liste des paquets rafraîchie (apt)
+    ansible.builtin.apt:
+      update_cache: true
+      cache_valid_time: "{{ 3600 if forge_listes_apt.matched else 0 }}"
+    when: ansible_facts.pkg_mgr == 'apt'
+    check_mode: false
+    changed_when: false
+  - name: Paquet logrotate
+    ansible.builtin.package:
+      name: logrotate
+      state: present
+    when: etat == 'present'
+  - name: Configuration de rotation
+    ansible.builtin.copy:
+      dest: "/etc/logrotate.d/forge-{{ nom }}"
+      mode: '0644'
+      content: |
+        {{ fichiers | join(' ') }} {
+            {{ frequence }}
+            rotate {{ conserver }}
+        {% if taille_min is defined %}    minsize {{ taille_min }}
+        {% endif %}{% if compresser %}    compress
+            delaycompress
+        {% endif %}    missingok
+            notifempty
+            copytruncate
+        }
+      validate: sh -c 't=$(mktemp) && install -o root -g root -m 0644 "$1" "$t" && logrotate -d "$t" >/dev/null 2>&1; r=$?; rm -f "$t"; exit $r' forge %s
+    when: etat == 'present'
+  - name: Configuration retirée
+    ansible.builtin.file:
+      path: "/etc/logrotate.d/forge-{{ nom }}"
+      state: absent
+    when: etat == 'absent'

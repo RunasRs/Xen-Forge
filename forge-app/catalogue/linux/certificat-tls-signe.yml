@@ -1,0 +1,54 @@
+name: Certificat TLS (signé)
+os: linux
+description: Dépose un certificat du menu Certificats (chaîne complète) et sa clé privée aux chemins indiqués, pour les services (nginx, Apache, Postfix…)
+parameters:
+  certificat:
+    label: Certificat
+    help: Certificat + clé privée ou PKCS12 du menu Certificats
+    type: certificate_entry
+    cert_types: [cert_key, pkcs12]
+    required: true
+  chemin_certificat:
+    label: Fichier du certificat
+    help: ex. /etc/forge/tls/intranet.crt ; dossier créé s'il manque
+    type: str
+    format: path_linux
+    required: true
+  chemin_cle:
+    label: Fichier de la clé privée
+    help: ex. /etc/forge/tls/intranet.key ; lisible par root seulement
+    type: str
+    format: path_linux
+    required: true
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - chemin_certificat is match('^/.*[^/]$')
+        - chemin_cle is match('^/.*[^/]$')
+        - chemin_certificat != chemin_cle
+      fail_msg: "Chemins : fichiers distincts, sans « / » final"
+      quiet: true
+  - name: Dossiers des fichiers
+    ansible.builtin.file:
+      path: "{{ item }}"
+      state: directory
+    loop: "{{ [chemin_certificat | dirname, chemin_cle | dirname] | unique }}"
+  - name: Certificat
+    ansible.builtin.copy:
+      dest: "{{ chemin_certificat }}"
+      content: "{{ certificat.fullchain }}"
+      owner: root
+      group: root
+      mode: '0644'
+  - name: Clé privée
+    ansible.builtin.copy:
+      dest: "{{ chemin_cle }}"
+      content: "{{ certificat.private_key }}"
+      owner: root
+      group: root
+      mode: '0600'
+    no_log: true
+  - name: Bilan
+    ansible.builtin.debug:
+      msg: "{{ chemin_certificat }} et {{ chemin_cle }} en place"

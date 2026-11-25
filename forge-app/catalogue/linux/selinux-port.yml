@@ -1,0 +1,44 @@
+name: "SELinux : ports"
+os: linux
+description: Autorise ou retire des ports pour un type SELinux, ex. 8080/tcp pour http_port_t ; ignorée si SELinux est désactivé
+parameters:
+  ports:
+    label: Ports
+    help: Port ou plage, ex. 8080, 9000-9010
+    type: list
+    required: true
+  protocole:
+    label: Protocole
+    type: str
+    choices: [tcp, udp]
+    default: tcp
+  type:
+    label: Type SELinux
+    help: ex. http_port_t (serveurs web), ssh_port_t
+    type: str
+    default: http_port_t
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - ports | reject('match', '^[0-9]{1,5}(-[0-9]{1,5})?$') | list | length == 0
+        - type is match('^[a-z0-9_]+_t$')
+      fail_msg: "Ports : numéro ou plage ; type : nom SELinux finissant par _t"
+      quiet: true
+  - name: Outils SELinux
+    ansible.builtin.package:
+      name: "{{ ['python3-libsemanage', 'policycoreutils-python-utils'] if ansible_facts.os_family == 'RedHat' else ['python3-semanage', 'policycoreutils-python-utils'] }}"
+      state: present
+    when: ansible_facts.selinux.status | default('disabled') == 'enabled'
+  - name: Ports SELinux
+    community.general.seport:
+      ports: "{{ ports | join(',') }}"
+      proto: "{{ protocole }}"
+      setype: "{{ type }}"
+      state: "{{ etat }}"
+    when: ansible_facts.selinux.status | default('disabled') == 'enabled'

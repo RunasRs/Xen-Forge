@@ -1,0 +1,68 @@
+name: Fichier
+os: linux
+description: Écrit un fichier avec le contenu indiqué, son propriétaire et ses droits, ou le supprime
+parameters:
+  chemin:
+    label: Fichier
+    type: str
+    format: path_linux
+    required: true
+  contenu:
+    label: Contenu
+    help: Contenu complet du fichier, remplacé à l'identique à chaque exécution
+    type: str
+    multiline: true
+  proprietaire:
+    label: Propriétaire
+    type: str
+    default: root
+  groupe:
+    label: Groupe
+    type: str
+    default: root
+  mode:
+    label: Droits
+    help: Notation octale, ex. 0644, 0600, 0755
+    type: str
+    default: '0644'
+  sauvegarde:
+    label: Garder une copie de l'ancien fichier
+    help: Copie horodatée à côté du fichier, à chaque modification
+    type: bool
+    default: false
+  etat:
+    label: Action
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Droits valides
+    ansible.builtin.assert:
+      that: mode is match('^0?[0-7]{3,4}$')
+      fail_msg: "Droits : notation octale, ex. 0644"
+      quiet: true
+  - name: Dossier du fichier
+    ansible.builtin.stat:
+      path: "{{ chemin | dirname }}"
+    register: forge_dossier
+    when: etat == 'present'
+  - name: Dossier existant
+    ansible.builtin.assert:
+      that: forge_dossier.stat.isdir | default(false)
+      fail_msg: "Le dossier {{ chemin | dirname }} n'existe pas : l'ajouter avec la brique Dossier avant cette étape"
+      quiet: true
+    when: etat == 'present'
+  - name: Fichier
+    ansible.builtin.copy:
+      dest: "{{ chemin }}"
+      content: "{{ contenu | default('') }}"
+      owner: "{{ proprietaire }}"
+      group: "{{ groupe }}"
+      mode: "{{ mode }}"
+      backup: "{{ sauvegarde }}"
+    when: etat == 'present'
+  - name: Fichier supprimé
+    ansible.builtin.file:
+      path: "{{ chemin }}"
+      state: absent
+    when: etat == 'absent'

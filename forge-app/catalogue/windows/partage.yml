@@ -1,0 +1,54 @@
+name: Partage réseau
+os: windows
+description: Partage un dossier sur le réseau (SMB) avec des droits de lecture, de modification ou de contrôle total, ou retire le partage
+parameters:
+  nom:
+    label: Nom du partage
+    type: str
+    required: true
+  chemin:
+    label: Dossier partagé
+    help: Créé s'il manque
+    type: str
+    format: path_windows
+    required: true
+  description_partage:
+    label: Description
+    type: str
+  lecture:
+    label: Lecture
+    help: Comptes ou groupes, ex. Everyone, CORP\Utilisateurs
+    type: list
+  modification:
+    label: Modification
+    type: list
+  controle_total:
+    label: Contrôle total
+    type: list
+  etat:
+    label: Action
+    help: absent retire le partage, pas le dossier
+    type: str
+    choices: [present, absent]
+    default: present
+tasks:
+  - name: Nom valide
+    ansible.builtin.assert:
+      that: nom is match('^[^"/\\\\\[\]:|<>+=;,?*]{1,80}$')
+      fail_msg: "Nom du partage : 80 caractères au plus, sans caractère interdit par Windows"
+      quiet: true
+  - name: Dossier partagé
+    ansible.windows.win_file:
+      path: "{{ chemin }}"
+      state: directory
+    when: etat == 'present'
+  - name: Partage
+    ansible.windows.win_share:
+      name: "{{ nom }}"
+      path: "{{ chemin }}"
+      description: "{{ description_partage | default(omit) }}"
+      read: "{{ lecture | default([]) | join(',') or omit }}"
+      change: "{{ modification | default([]) | join(',') or omit }}"
+      full: "{{ controle_total | default([]) | join(',') or omit }}"
+      list: true
+      state: "{{ etat }}"

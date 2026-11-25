@@ -1,0 +1,30 @@
+name: "SELinux : booléens"
+os: linux
+description: Active ou désactive des booléens SELinux de façon permanente, ex. httpd_can_network_connect ; ignorée si SELinux est désactivé
+parameters:
+  booleens:
+    label: Booléens
+    type: list
+    required: true
+  valeur:
+    label: Valeur
+    type: bool
+    default: true
+tasks:
+  - name: Noms valides
+    ansible.builtin.assert:
+      that: booleens | reject('match', '^[a-z0-9_]+$') | list | length == 0
+      fail_msg: "Booléens : minuscules, chiffres et « _ »"
+      quiet: true
+  - name: Outils SELinux
+    ansible.builtin.package:
+      name: "{{ ['python3-libsemanage', 'policycoreutils-python-utils'] if ansible_facts.os_family == 'RedHat' else ['python3-semanage', 'policycoreutils-python-utils'] }}"
+      state: present
+    when: ansible_facts.selinux.status | default('disabled') == 'enabled'
+  - name: Booléens SELinux
+    ansible.posix.seboolean:
+      name: "{{ item }}"
+      state: "{{ valeur }}"
+      persistent: true
+    loop: "{{ booleens }}"
+    when: ansible_facts.selinux.status | default('disabled') == 'enabled'

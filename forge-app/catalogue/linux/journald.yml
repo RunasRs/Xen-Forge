@@ -1,0 +1,46 @@
+name: Journal système (journald)
+os: linux
+description: Règle la conservation du journal systemd (stockage persistant, taille et durée maximales) dans un fichier dédié de /etc/systemd/journald.conf.d
+parameters:
+  persistant:
+    label: Conserver après redémarrage
+    help: Stockage dans /var/log/journal au lieu de la mémoire
+    type: bool
+    default: true
+  taille_max:
+    label: Taille maximale
+    help: Espace disque occupé au plus par le journal, ex. 500M, 2G ; vide = valeur par défaut de systemd
+    type: str
+  duree_max:
+    label: Durée de conservation
+    help: Âge maximal des entrées, ex. 2weeks, 1month, 6month ; vide = sans limite d'âge
+    type: str
+tasks:
+  - name: Valeurs valides
+    ansible.builtin.assert:
+      that:
+        - taille_max is not defined or taille_max is match('^[0-9]+[KMGT]$')
+        - duree_max is not defined or duree_max is match('^[0-9]+(s|min|h|day|week|weeks|month|year)$')
+      fail_msg: "Taille : nombre suivi de K, M, G ou T ; durée : nombre suivi de s, min, h, day, week(s), month ou year"
+      quiet: true
+  - name: Dossier de configuration
+    ansible.builtin.file:
+      path: /etc/systemd/journald.conf.d
+      state: directory
+      mode: '0755'
+  - name: Configuration du journal
+    ansible.builtin.copy:
+      dest: /etc/systemd/journald.conf.d/90-forge.conf
+      mode: '0644'
+      content: |
+        [Journal]
+        Storage={{ 'persistent' if persistant else 'volatile' }}
+        {% if taille_max is defined %}SystemMaxUse={{ taille_max }}
+        {% endif %}{% if duree_max is defined %}MaxRetentionSec={{ duree_max }}
+        {% endif %}
+    register: forge_journald
+  - name: Service journald relancé
+    ansible.builtin.systemd_service:
+      name: systemd-journald
+      state: restarted
+    when: forge_journald.changed
